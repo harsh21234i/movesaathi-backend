@@ -1,0 +1,25 @@
+from datetime import datetime
+
+from sqlalchemy import DateTime, Float, Integer, String, Text
+from sqlalchemy.orm import Mapped, mapped_column, relationship
+
+from app.db.base_class import Base
+
+
+class User(Base):
+    __tablename__ = "users"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    full_name: Mapped[str] = mapped_column(String(120))
+    email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
+    phone_number: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    hashed_password: Mapped[str] = mapped_column(String(255))
+    bio: Mapped[str | None] = mapped_column(Text, nullable=True)
+    rating: Mapped[float] = mapped_column(Float, default=5.0)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    rides = relationship("Ride", back_populates="driver", cascade="all, delete-orphan")
+    bookings = relationship("Booking", back_populates="passenger", cascade="all, delete-orphan")
+    messages = relationship("Message", back_populates="sender", cascade="all, delete-orphan")
+    reviews_given = relationship("Review", foreign_keys="Review.reviewer_id", back_populates="reviewer")
+    reviews_received = relationship("Review", foreign_keys="Review.reviewee_id", back_populates="reviewee")
