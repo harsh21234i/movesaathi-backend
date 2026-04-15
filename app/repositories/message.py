@@ -10,7 +10,7 @@ class MessageRepository:
 
     def create(self, message: Message) -> Message:
         self.db.add(message)
-        self.db.commit()
+        self.db.flush()
         self.db.refresh(message)
         return message
 

@@ -5,34 +5,43 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.v1.router import api_router
 from app.core.config import settings
-from app.db.session import create_db_and_tables
+from app.core.logging import configure_logging, log_requests
+from app.db.session import initialize_database
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
-    create_db_and_tables()
+    initialize_database()
     yield
 
 
-app = FastAPI(
-    title=settings.PROJECT_NAME,
-    version="1.0.0",
-    description="MooveSaathi ride-sharing platform backend API.",
-    openapi_url=f"{settings.API_V1_STR}/openapi.json",
-    lifespan=lifespan,
-)
+def create_app() -> FastAPI:
+    configure_logging()
 
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=settings.BACKEND_CORS_ORIGINS,
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+    app = FastAPI(
+        title=settings.PROJECT_NAME,
+        version="1.0.0",
+        description="MooveSaathi ride-sharing platform backend API.",
+        openapi_url=f"{settings.API_V1_STR}/openapi.json",
+        lifespan=lifespan,
+    )
 
-app.include_router(api_router, prefix=settings.API_V1_STR)
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.BACKEND_CORS_ORIGINS,
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
+    app.middleware("http")(log_requests)
+
+    app.include_router(api_router, prefix=settings.API_V1_STR)
+
+    @app.get("/health", tags=["health"])
+    def health_check() -> dict[str, str]:
+        return {"status": "ok"}
+
+    return app
 
 
-@app.get("/health", tags=["health"])
-def health_check() -> dict[str, str]:
-    return {"status": "ok"}
+app = create_app()

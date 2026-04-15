@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import DateTime, Float, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -16,7 +16,7 @@ class User(Base):
     hashed_password: Mapped[str] = mapped_column(String(255))
     bio: Mapped[str | None] = mapped_column(Text, nullable=True)
     rating: Mapped[float] = mapped_column(Float, default=5.0)
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     rides = relationship("Ride", back_populates="driver", cascade="all, delete-orphan")
     bookings = relationship("Booking", back_populates="passenger", cascade="all, delete-orphan")

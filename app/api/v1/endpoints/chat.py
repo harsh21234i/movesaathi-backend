@@ -1,12 +1,13 @@
 import asyncio
 
-from fastapi import APIRouter, Depends, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, Depends, Request, WebSocket, WebSocketDisconnect
 from jose import JWTError
 from redis import asyncio as redis_asyncio
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db
 from app.core.config import settings
+from app.core.rate_limit import rate_limit_dependency
 from app.core.security import decode_token
 from app.models.user import User
 from app.repositories.booking import BookingRepository
@@ -16,6 +17,17 @@ from app.services.chat import ChatService
 from app.websocket.manager import connection_manager
 
 router = APIRouter()
+
+
+def _chat_identifier(request: Request) -> str:
+    body = getattr(request.state, "json_body", None) or {}
+    booking_id = body.get("booking_id", "unknown")
+    client_host = request.client.host if request.client else "unknown"
+    return f"{client_host}:{booking_id}"
+
+
+async def cache_json_body(request: Request) -> None:
+    request.state.json_body = await request.json()
 
 
 @router.get("/{booking_id}/messages", response_model=list[MessageResponse])
@@ -32,6 +44,15 @@ def send_message(
     payload: MessageCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    _: None = Depends(cache_json_body),
+    __: None = Depends(
+        rate_limit_dependency(
+            "chat-message",
+            limit=lambda: settings.CHAT_MESSAGE_RATE_LIMIT_MAX_REQUESTS,
+            window_seconds=lambda: settings.CHAT_MESSAGE_RATE_LIMIT_WINDOW_SECONDS,
+            identifier_getter=_chat_identifier,
+        )
+    ),
 ) -> MessageResponse:
     return ChatService(db).save_message(payload, current_user)
 
@@ -39,7 +60,12 @@ def send_message(
 @router.websocket("/ws/{booking_id}")
 async def chat_socket(websocket: WebSocket, booking_id: int, token: str) -> None:
     db = next(get_db())
-    redis_client = redis_asyncio.from_url(settings.REDIS_URL, decode_responses=True)
+    redis_client = redis_asyncio.from_url(
+        settings.REDIS_URL,
+        decode_responses=True,
+        socket_connect_timeout=settings.REDIS_SOCKET_CONNECT_TIMEOUT,
+        socket_timeout=settings.REDIS_SOCKET_TIMEOUT,
+    )
     pubsub = redis_client.pubsub()
     try:
         try:
@@ -62,10 +88,16 @@ async def chat_socket(websocket: WebSocket, booking_id: int, token: str) -> None
                 event = await pubsub.get_message(ignore_subscribe_messages=True, timeout=1.0)
                 if event and event.get("data"):
                     await connection_manager.broadcast(booking_id, event["data"])
-                await asyncio.sleep(0.1)
+                try:
+                    message = await asyncio.wait_for(websocket.receive(), timeout=0.1)
+                    if message["type"] == "websocket.disconnect":
+                        break
+                except TimeoutError:
+                    continue
         except WebSocketDisconnect:
-            connection_manager.disconnect(booking_id, websocket)
+            pass
     finally:
+        connection_manager.disconnect(booking_id, websocket)
         await pubsub.unsubscribe(f"chat:{booking_id}")
         await pubsub.close()
         await redis_client.close()

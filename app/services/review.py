@@ -24,17 +24,22 @@ class ReviewService:
         if current_user.id not in participant_ids or payload.reviewee_id not in participant_ids:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Review not allowed")
 
-        review = self.reviews.create(
-            Review(
-                reviewer_id=current_user.id,
-                reviewee_id=payload.reviewee_id,
-                booking_id=payload.booking_id,
-                rating=payload.rating,
-                comment=payload.comment,
+        try:
+            review = self.reviews.create(
+                Review(
+                    reviewer_id=current_user.id,
+                    reviewee_id=payload.reviewee_id,
+                    booking_id=payload.booking_id,
+                    rating=payload.rating,
+                    comment=payload.comment,
+                )
             )
-        )
-        reviewee = self.users.get_by_id(payload.reviewee_id)
-        if reviewee:
-            reviewee.rating = self.reviews.get_average_rating(payload.reviewee_id)
-            self.users.save(reviewee)
-        return review
+            reviewee = self.users.get_by_id(payload.reviewee_id)
+            if reviewee:
+                reviewee.rating = self.reviews.get_average_rating(payload.reviewee_id)
+                self.users.save(reviewee)
+            self.reviews.db.commit()
+            return review
+        except Exception:
+            self.reviews.db.rollback()
+            raise
