@@ -105,4 +105,5 @@ def rate_limit_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "LOGIN_RATE_LIMIT_MAX_REQUESTS", 2)
     monkeypatch.setattr(settings, "FORGOT_PASSWORD_RATE_LIMIT_MAX_REQUESTS", 2)
     monkeypatch.setattr(settings, "RESET_PASSWORD_RATE_LIMIT_MAX_REQUESTS", 2)
+    monkeypatch.setattr(settings, "RESEND_VERIFICATION_RATE_LIMIT_MAX_REQUESTS", 2)
     monkeypatch.setattr(settings, "CHAT_MESSAGE_RATE_LIMIT_MAX_REQUESTS", 2)

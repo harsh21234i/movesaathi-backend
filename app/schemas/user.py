@@ -12,6 +12,8 @@ class UserResponse(BaseModel):
     phone_number: str | None
     bio: str | None
     rating: float
+    email_verified: bool
+    email_verified_at: datetime | None
     created_at: datetime
 
 

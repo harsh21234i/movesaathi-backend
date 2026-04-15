@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, Float, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Float, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base_class import Base
@@ -16,6 +16,8 @@ class User(Base):
     hashed_password: Mapped[str] = mapped_column(String(255))
     bio: Mapped[str | None] = mapped_column(Text, nullable=True)
     rating: Mapped[float] = mapped_column(Float, default=5.0)
+    email_verified: Mapped[bool] = mapped_column(Boolean, default=False)
+    email_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     rides = relationship("Ride", back_populates="driver", cascade="all, delete-orphan")

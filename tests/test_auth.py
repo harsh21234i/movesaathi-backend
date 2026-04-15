@@ -16,6 +16,8 @@ def test_register_login_and_me(client) -> None:
     )
     assert register_response.status_code == 201
     assert register_response.json()["email"] == "test@example.com"
+    assert register_response.json()["email_verified"] is False
+    assert register_response.json()["verification_token"]
 
     login_response = client.post(
         "/api/v1/auth/login",
@@ -150,6 +152,66 @@ def test_forgot_password_is_generic_for_unknown_email(client) -> None:
     assert response.json()["message"] == "If an account exists for that email, a reset link has been generated."
 
 
+def test_email_verification_flow_and_login_requirement(client, monkeypatch) -> None:
+    monkeypatch.setattr("app.services.auth.settings.REQUIRE_EMAIL_VERIFICATION", True)
+
+    register_response = client.post(
+        "/api/v1/auth/register",
+        json={
+            "full_name": "Verify User",
+            "email": "verify@example.com",
+            "password": "Password123",
+            "phone_number": "1212121212",
+        },
+    )
+    assert register_response.status_code == 201
+    verification_token = register_response.json()["verification_token"]
+    assert verification_token
+
+    blocked_login = client.post(
+        "/api/v1/auth/login",
+        json={"email": "verify@example.com", "password": "Password123"},
+    )
+    assert blocked_login.status_code == 403
+
+    verify_response = client.post("/api/v1/auth/verify-email", json={"token": verification_token})
+    assert verify_response.status_code == 204
+
+    login_response = client.post(
+        "/api/v1/auth/login",
+        json={"email": "verify@example.com", "password": "Password123"},
+    )
+    assert login_response.status_code == 200
+
+
+def test_resend_verification_is_generic_and_returns_token_in_non_production(client) -> None:
+    register_response = client.post(
+        "/api/v1/auth/register",
+        json={
+            "full_name": "Resend User",
+            "email": "resend@example.com",
+            "password": "Password123",
+            "phone_number": "3434343434",
+        },
+    )
+    assert register_response.status_code == 201
+
+    resend_response = client.post(
+        "/api/v1/auth/resend-verification",
+        json={"email": "resend@example.com"},
+    )
+    assert resend_response.status_code == 200
+    assert resend_response.json()["message"] == "If an account exists for that email, a verification email has been sent."
+    assert resend_response.json()["verification_token"]
+
+    unknown_response = client.post(
+        "/api/v1/auth/resend-verification",
+        json={"email": "unknown@example.com"},
+    )
+    assert unknown_response.status_code == 200
+    assert unknown_response.json()["message"] == "If an account exists for that email, a verification email has been sent."
+
+
 def test_login_rate_limit(client, rate_limit_settings) -> None:
     register_response = client.post(
         "/api/v1/auth/register",
@@ -183,4 +245,12 @@ def test_forgot_password_rate_limit(client, rate_limit_settings) -> None:
     assert client.post("/api/v1/auth/forgot-password", json={"email": "unknown@example.com"}).status_code == 200
 
     blocked = client.post("/api/v1/auth/forgot-password", json={"email": "unknown@example.com"})
+    assert blocked.status_code == 429
+
+
+def test_resend_verification_rate_limit(client, rate_limit_settings) -> None:
+    assert client.post("/api/v1/auth/resend-verification", json={"email": "unknown@example.com"}).status_code == 200
+    assert client.post("/api/v1/auth/resend-verification", json={"email": "unknown@example.com"}).status_code == 200
+
+    blocked = client.post("/api/v1/auth/resend-verification", json={"email": "unknown@example.com"})
     assert blocked.status_code == 429

@@ -41,6 +41,14 @@ def create_reset_token(subject: str, expires_delta: timedelta | None = None) -> 
     )
 
 
+def create_email_verification_token(subject: str, expires_delta: timedelta | None = None) -> str:
+    return create_token(
+        subject=subject,
+        token_type="verify-email",
+        expires_delta=expires_delta or timedelta(minutes=settings.EMAIL_VERIFICATION_TOKEN_EXPIRE_MINUTES),
+    )
+
+
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
 
