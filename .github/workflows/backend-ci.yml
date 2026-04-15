@@ -1,0 +1,38 @@
+name: Backend CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      APP_ENV: test
+      SECRET_KEY: test-secret-key-with-at-least-32-chars
+      DATABASE_URL: sqlite:///./ci.db
+      REDIS_URL: redis://localhost:6379/0
+      AUTO_CREATE_TABLES: "false"
+      BACKEND_CORS_ORIGINS: '["http://localhost:5173"]'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Validate imports
+        run: python -m compileall app tests
+
+      - name: Run migrations
+        run: alembic upgrade head
+
+      - name: Run tests
+        run: pytest

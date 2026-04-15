@@ -13,15 +13,19 @@ class RideRepository:
     def get_by_id(self, ride_id: int) -> Ride | None:
         return self.db.get(Ride, ride_id)
 
+    def get_by_id_for_update(self, ride_id: int) -> Ride | None:
+        stmt = select(Ride).where(Ride.id == ride_id).with_for_update()
+        return self.db.scalar(stmt)
+
     def create(self, ride: Ride) -> Ride:
         self.db.add(ride)
-        self.db.commit()
+        self.db.flush()
         self.db.refresh(ride)
         return ride
 
     def save(self, ride: Ride) -> Ride:
         self.db.add(ride)
-        self.db.commit()
+        self.db.flush()
         self.db.refresh(ride)
         return ride
 

@@ -11,6 +11,12 @@ class UserService:
 
     def update_user(self, current_user: User, payload: UserUpdate) -> User:
         updates = payload.model_dump(exclude_unset=True)
-        for field, value in updates.items():
-            setattr(current_user, field, value)
-        return self.users.save(current_user)
+        try:
+            for field, value in updates.items():
+                setattr(current_user, field, value)
+            saved_user = self.users.save(current_user)
+            self.users.db.commit()
+            return saved_user
+        except Exception:
+            self.users.db.rollback()
+            raise

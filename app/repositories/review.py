@@ -10,7 +10,7 @@ class ReviewRepository:
 
     def create(self, review: Review) -> Review:
         self.db.add(review)
-        self.db.commit()
+        self.db.flush()
         self.db.refresh(review)
         return review
 
