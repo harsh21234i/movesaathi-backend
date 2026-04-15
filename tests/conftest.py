@@ -2,6 +2,7 @@ from collections.abc import Generator
 
 import pytest
 from fastapi.testclient import TestClient
+from redis.exceptions import RedisError
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -23,10 +24,26 @@ engine = create_engine(
 TestingSessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False, future=True)
 
 
+class UnavailableRedis:
+    def incr(self, *args, **kwargs):
+        raise RedisError("redis unavailable in tests")
+
+    def expire(self, *args, **kwargs):
+        raise RedisError("redis unavailable in tests")
+
+    def setex(self, *args, **kwargs):
+        raise RedisError("redis unavailable in tests")
+
+    def exists(self, *args, **kwargs):
+        raise RedisError("redis unavailable in tests")
+
+
 @pytest.fixture(autouse=True)
-def setup_database() -> Generator[None, None, None]:
+def setup_database(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]:
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
+    monkeypatch.setattr(rate_limiter, "_redis", UnavailableRedis())
+    monkeypatch.setattr(token_store, "_client", UnavailableRedis())
     token_store._in_memory_tokens.clear()
     rate_limiter.reset()
     yield

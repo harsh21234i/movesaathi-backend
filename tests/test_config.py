@@ -14,5 +14,5 @@ def test_production_requires_non_default_secret() -> None:
 
 
 def test_non_production_can_create_tables() -> None:
-    settings = Settings(APP_ENV="test", SECRET_KEY="x" * 32)
+    settings = Settings(APP_ENV="test", SECRET_KEY="x" * 32, AUTO_CREATE_TABLES=True)
     assert settings.should_create_tables is True
