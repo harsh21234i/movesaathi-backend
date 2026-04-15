@@ -1,5 +1,7 @@
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
+from app.schemas.user import UserResponse
+
 
 def validate_password_strength_value(value: str) -> str:
     has_upper = any(char.isupper() for char in value)
@@ -44,6 +46,10 @@ class ForgotPasswordResponse(BaseModel):
     reset_token: str | None = None
 
 
+class RegisterResponse(UserResponse):
+    verification_token: str | None = None
+
+
 class ResetPasswordRequest(BaseModel):
     token: str
     new_password: str = Field(min_length=8, max_length=128)
@@ -58,3 +64,16 @@ class TokenResponse(BaseModel):
     access_token: str
     refresh_token: str
     token_type: str = "bearer"
+
+
+class ResendVerificationRequest(BaseModel):
+    email: EmailStr
+
+
+class ResendVerificationResponse(BaseModel):
+    message: str
+    verification_token: str | None = None
+
+
+class VerifyEmailRequest(BaseModel):
+    token: str

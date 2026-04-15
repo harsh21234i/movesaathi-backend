@@ -10,12 +10,15 @@ from app.schemas.auth import (
     ForgotPasswordResponse,
     LoginRequest,
     LogoutRequest,
+    RegisterResponse,
     RefreshRequest,
     RegisterRequest,
+    ResendVerificationRequest,
+    ResendVerificationResponse,
     ResetPasswordRequest,
     TokenResponse,
+    VerifyEmailRequest,
 )
-from app.schemas.user import UserResponse
 from app.services.auth import AuthService
 
 router = APIRouter()
@@ -32,8 +35,8 @@ async def cache_json_body(request: Request) -> None:
     request.state.json_body = await request.json()
 
 
-@router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
-def register(payload: RegisterRequest, db: Session = Depends(get_db)) -> UserResponse:
+@router.post("/register", response_model=RegisterResponse, status_code=status.HTTP_201_CREATED)
+def register(payload: RegisterRequest, db: Session = Depends(get_db)) -> RegisterResponse:
     return AuthService(db).register(payload)
 
 
@@ -69,6 +72,29 @@ def forgot_password(
     ),
 ) -> ForgotPasswordResponse:
     return AuthService(db).forgot_password(payload)
+
+
+@router.post("/resend-verification", response_model=ResendVerificationResponse)
+def resend_verification(
+    payload: ResendVerificationRequest,
+    db: Session = Depends(get_db),
+    _: None = Depends(cache_json_body),
+    __: None = Depends(
+        rate_limit_dependency(
+            "auth-resend-verification",
+            limit=lambda: settings.RESEND_VERIFICATION_RATE_LIMIT_MAX_REQUESTS,
+            window_seconds=lambda: settings.RESEND_VERIFICATION_RATE_LIMIT_WINDOW_SECONDS,
+            identifier_getter=_request_email_identifier,
+        )
+    ),
+) -> ResendVerificationResponse:
+    return AuthService(db).resend_verification(payload)
+
+
+@router.post("/verify-email", status_code=status.HTTP_204_NO_CONTENT)
+def verify_email(payload: VerifyEmailRequest, db: Session = Depends(get_db)) -> Response:
+    AuthService(db).verify_email(payload)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
 @router.post("/reset-password", status_code=status.HTTP_204_NO_CONTENT)
