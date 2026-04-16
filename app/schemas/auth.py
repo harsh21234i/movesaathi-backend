@@ -1,5 +1,6 @@
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
+from app.models.user import UserRole
 from app.schemas.user import UserResponse
 
 
@@ -17,6 +18,7 @@ class RegisterRequest(BaseModel):
     email: EmailStr
     password: str = Field(min_length=8, max_length=128)
     phone_number: str | None = Field(default=None, max_length=20)
+    role: UserRole = UserRole.passenger
 
     @field_validator("password")
     @classmethod

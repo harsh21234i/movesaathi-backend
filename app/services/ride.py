@@ -1,7 +1,8 @@
+from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.models.ride import Ride
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.repositories.ride import RideRepository
 from app.schemas.ride import RideCreate, RideSearchParams
 
@@ -11,6 +12,12 @@ class RideService:
         self.rides = RideRepository(db)
 
     def create_ride(self, payload: RideCreate, current_user: User) -> Ride:
+        if current_user.role != UserRole.driver:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only driver accounts can publish rides",
+            )
+
         try:
             ride = Ride(
                 driver_id=current_user.id,
@@ -35,3 +42,11 @@ class RideService:
             destination=params.destination,
             departure_after=params.departure_after,
         )
+
+    def list_driver_rides(self, current_user: User) -> list[Ride]:
+        if current_user.role != UserRole.driver:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only driver accounts can view published rides",
+            )
+        return self.rides.list_by_driver(current_user.id)

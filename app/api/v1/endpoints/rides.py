@@ -20,6 +20,14 @@ def create_ride(
     return RideService(db).create_ride(payload, current_user)
 
 
+@router.get("/mine", response_model=list[RideResponse])
+def list_my_rides(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[RideResponse]:
+    return RideService(db).list_driver_rides(current_user)
+
+
 @router.get("", response_model=list[RideResponse])
 def search_rides(
     origin: str | None = Query(default=None),

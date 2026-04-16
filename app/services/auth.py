@@ -51,6 +51,7 @@ class AuthService:
                 email=payload.email,
                 phone_number=payload.phone_number,
                 hashed_password=get_password_hash(payload.password),
+                role=payload.role,
             )
             saved_user = self.users.create(user)
             self.users.db.commit()

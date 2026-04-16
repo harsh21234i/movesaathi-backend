@@ -2,7 +2,7 @@ from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.models.booking import Booking, BookingStatus
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.repositories.booking import BookingRepository
 from app.repositories.ride import RideRepository
 from app.schemas.booking import BookingCreate
@@ -14,6 +14,12 @@ class BookingService:
         self.rides = RideRepository(db)
 
     def create_booking(self, payload: BookingCreate, current_user: User) -> Booking:
+        if current_user.role != UserRole.passenger:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only passenger accounts can book rides",
+            )
+
         try:
             ride = self.rides.get_by_id_for_update(payload.ride_id)
             if not ride or not ride.is_active:
@@ -37,6 +43,12 @@ class BookingService:
             raise
 
     def update_status(self, booking_id: int, status_value: BookingStatus, current_user: User) -> Booking:
+        if current_user.role != UserRole.driver:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only driver accounts can manage booking requests",
+            )
+
         try:
             booking = self.bookings.get_by_id(booking_id)
             if not booking:
@@ -62,3 +74,19 @@ class BookingService:
         except Exception:
             self.bookings.db.rollback()
             raise
+
+    def list_passenger_bookings(self, current_user: User) -> list[Booking]:
+        if current_user.role != UserRole.passenger:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only passenger accounts can view passenger bookings",
+            )
+        return self.bookings.list_by_passenger(current_user.id)
+
+    def list_driver_bookings(self, current_user: User) -> list[Booking]:
+        if current_user.role != UserRole.driver:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only driver accounts can view booking requests",
+            )
+        return self.bookings.list_for_driver(current_user.id)

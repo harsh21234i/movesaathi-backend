@@ -1,9 +1,15 @@
 from datetime import datetime, timezone
+from enum import Enum
 
-from sqlalchemy import Boolean, DateTime, Float, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Enum as SqlEnum, Float, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base_class import Base
+
+
+class UserRole(str, Enum):
+    driver = "driver"
+    passenger = "passenger"
 
 
 class User(Base):
@@ -14,6 +20,7 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(255), unique=True, index=True)
     phone_number: Mapped[str | None] = mapped_column(String(20), nullable=True)
     hashed_password: Mapped[str] = mapped_column(String(255))
+    role: Mapped[UserRole] = mapped_column(SqlEnum(UserRole), default=UserRole.passenger, nullable=False)
     bio: Mapped[str | None] = mapped_column(Text, nullable=True)
     rating: Mapped[float] = mapped_column(Float, default=5.0)
     email_verified: Mapped[bool] = mapped_column(Boolean, default=False)
