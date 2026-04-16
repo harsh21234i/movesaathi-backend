@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
 
-def _register_and_login(client, *, name: str, email: str) -> dict[str, str]:
+def _register_and_login(client, *, name: str, email: str, role: str) -> dict[str, str]:
     register_response = client.post(
         "/api/v1/auth/register",
         json={
@@ -9,6 +9,7 @@ def _register_and_login(client, *, name: str, email: str) -> dict[str, str]:
             "email": email,
             "password": "Password123",
             "phone_number": "1111111111",
+            "role": role,
         },
     )
     assert register_response.status_code == 201
@@ -38,18 +39,18 @@ def _create_ride(client, headers: dict[str, str], seats: int = 2) -> int:
 
 
 def test_driver_cannot_book_own_ride(client) -> None:
-    driver_headers = _register_and_login(client, name="Driver", email="driver@example.com")
+    driver_headers = _register_and_login(client, name="Driver", email="driver@example.com", role="driver")
     ride_id = _create_ride(client, driver_headers)
 
     response = client.post("/api/v1/bookings", headers=driver_headers, json={"ride_id": ride_id, "notes": "me"})
 
-    assert response.status_code == 400
-    assert response.json()["detail"] == "Driver cannot book own ride"
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Only passenger accounts can book rides"
 
 
 def test_booking_acceptance_reduces_available_seats(client) -> None:
-    driver_headers = _register_and_login(client, name="Driver", email="driver2@example.com")
-    passenger_headers = _register_and_login(client, name="Passenger", email="passenger@example.com")
+    driver_headers = _register_and_login(client, name="Driver", email="driver2@example.com", role="driver")
+    passenger_headers = _register_and_login(client, name="Passenger", email="passenger@example.com", role="passenger")
     ride_id = _create_ride(client, driver_headers, seats=1)
 
     create_booking = client.post(
@@ -74,8 +75,8 @@ def test_booking_acceptance_reduces_available_seats(client) -> None:
 
 
 def test_duplicate_booking_is_rejected(client) -> None:
-    driver_headers = _register_and_login(client, name="Driver", email="driver3@example.com")
-    passenger_headers = _register_and_login(client, name="Passenger", email="passenger2@example.com")
+    driver_headers = _register_and_login(client, name="Driver", email="driver3@example.com", role="driver")
+    passenger_headers = _register_and_login(client, name="Passenger", email="passenger2@example.com", role="passenger")
     ride_id = _create_ride(client, driver_headers)
 
     first_response = client.post("/api/v1/bookings", headers=passenger_headers, json={"ride_id": ride_id})

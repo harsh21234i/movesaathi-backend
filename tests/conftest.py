@@ -87,6 +87,7 @@ def auth_headers(client: TestClient) -> dict[str, str]:
             "email": "alice@example.com",
             "password": "Password123",
             "phone_number": "1234567890",
+            "role": "driver",
         },
     )
     assert response.status_code == 201
