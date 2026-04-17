@@ -85,3 +85,33 @@ def test_duplicate_booking_is_rejected(client) -> None:
     assert first_response.status_code == 200
     assert second_response.status_code == 400
     assert second_response.json()["detail"] == "Passenger already has a booking for this ride"
+
+
+def test_booking_detail_includes_ride_and_participants(client) -> None:
+    driver_headers = _register_and_login(client, name="Driver", email="driver4@example.com", role="driver")
+    passenger_headers = _register_and_login(client, name="Passenger", email="passenger4@example.com", role="passenger")
+    ride_id = _create_ride(client, driver_headers)
+
+    create_booking = client.post(
+        "/api/v1/bookings",
+        headers=passenger_headers,
+        json={"ride_id": ride_id, "notes": "Need pickup"},
+    )
+    booking_id = create_booking.json()["id"]
+
+    accept_booking = client.patch(
+        f"/api/v1/bookings/{booking_id}",
+        headers=driver_headers,
+        json={"status": "accepted"},
+    )
+    assert accept_booking.status_code == 200
+
+    detail_response = client.get(f"/api/v1/bookings/{booking_id}", headers=passenger_headers)
+
+    assert detail_response.status_code == 200
+    body = detail_response.json()
+    assert body["ride"]["id"] == ride_id
+    assert body["driver"]["email"] == "driver4@example.com"
+    assert body["passenger"]["email"] == "passenger4@example.com"
+    assert body["ride"]["booking_id"] == booking_id
+    assert len(body["status_events"]) == 3

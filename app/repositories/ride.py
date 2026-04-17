@@ -1,8 +1,9 @@
 from datetime import datetime
 
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
+from app.models.booking import Booking
 from app.models.ride import Ride
 
 
@@ -13,8 +14,24 @@ class RideRepository:
     def get_by_id(self, ride_id: int) -> Ride | None:
         return self.db.get(Ride, ride_id)
 
+    def get_detail_by_id(self, ride_id: int) -> Ride | None:
+        stmt = (
+            select(Ride)
+            .options(
+                joinedload(Ride.driver),
+                joinedload(Ride.bookings).joinedload(Booking.passenger),
+            )
+            .where(Ride.id == ride_id)
+        )
+        return self.db.execute(stmt).scalars().unique().first()
+
     def get_by_id_for_update(self, ride_id: int) -> Ride | None:
-        stmt = select(Ride).where(Ride.id == ride_id).with_for_update()
+        stmt = (
+            select(Ride)
+            .options(joinedload(Ride.bookings))
+            .where(Ride.id == ride_id)
+            .with_for_update()
+        )
         return self.db.scalar(stmt)
 
     def create(self, ride: Ride) -> Ride:

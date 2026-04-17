@@ -12,7 +12,7 @@ class BookingRepository:
     def get_by_id(self, booking_id: int) -> Booking | None:
         stmt = (
             select(Booking)
-            .options(joinedload(Booking.ride), joinedload(Booking.passenger))
+            .options(joinedload(Booking.ride).joinedload(Ride.driver), joinedload(Booking.passenger))
             .where(Booking.id == booking_id)
         )
         return self.db.scalar(stmt)

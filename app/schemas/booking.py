@@ -3,6 +3,7 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict
 
 from app.models.booking import BookingStatus
+from app.schemas.user import UserResponse
 
 
 class BookingCreate(BaseModel):
@@ -53,3 +54,21 @@ class PassengerBookingResponse(BookingResponse):
 class DriverBookingResponse(BookingResponse):
     ride: BookingRideSummary
     passenger: BookingPassengerSummary
+
+
+class BookingStatusEvent(BaseModel):
+    label: str
+    tone: str
+    timestamp: datetime | None = None
+
+
+class BookingDetailResponse(BookingResponse):
+    ride: "RideDetailResponse"
+    driver: UserResponse
+    passenger: UserResponse
+    status_events: list[BookingStatusEvent]
+
+
+from app.schemas.ride import RideDetailResponse
+
+BookingDetailResponse.model_rebuild()

@@ -2,12 +2,24 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.schemas.user import UserResponse
+
 
 class RideCreate(BaseModel):
     origin: str = Field(min_length=2, max_length=120)
     destination: str = Field(min_length=2, max_length=120)
     departure_time: datetime
     available_seats: int = Field(ge=1, le=10)
+    price_per_seat: float = Field(ge=0)
+    vehicle_details: str | None = Field(default=None, max_length=150)
+    notes: str | None = None
+
+
+class RideUpdate(BaseModel):
+    origin: str = Field(min_length=2, max_length=120)
+    destination: str = Field(min_length=2, max_length=120)
+    departure_time: datetime
+    available_seats: int = Field(ge=0, le=10)
     price_per_seat: float = Field(ge=0)
     vehicle_details: str | None = Field(default=None, max_length=150)
     notes: str | None = None
@@ -32,3 +44,19 @@ class RideResponse(BaseModel):
     vehicle_details: str | None
     notes: str | None
     is_active: bool
+
+
+class RidePassengerSummary(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    full_name: str
+    email: str
+    phone_number: str | None
+
+
+class RideDetailResponse(RideResponse):
+    driver: UserResponse
+    booked_passengers: int
+    passengers: list[RidePassengerSummary]
+    booking_id: int | None = None

@@ -5,6 +5,7 @@ from app.api.deps import get_current_user, get_db
 from app.models.user import User
 from app.schemas.booking import (
     BookingCreate,
+    BookingDetailResponse,
     BookingResponse,
     BookingStatusUpdate,
     DriverBookingResponse,
@@ -38,6 +39,15 @@ def list_managed_bookings(
     current_user: User = Depends(get_current_user),
 ) -> list[DriverBookingResponse]:
     return BookingService(db).list_driver_bookings(current_user)
+
+
+@router.get("/{booking_id}", response_model=BookingDetailResponse)
+def get_booking_detail(
+    booking_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> BookingDetailResponse:
+    return BookingService(db).get_booking_detail(booking_id, current_user)
 
 
 @router.patch("/{booking_id}", response_model=BookingResponse)
