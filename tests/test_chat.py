@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
 
-def _register_and_login(client, *, name: str, email: str) -> dict[str, str]:
+def _register_and_login(client, *, name: str, email: str, role: str) -> dict[str, str]:
     register_response = client.post(
         "/api/v1/auth/register",
         json={
@@ -9,6 +9,7 @@ def _register_and_login(client, *, name: str, email: str) -> dict[str, str]:
             "email": email,
             "password": "Password123",
             "phone_number": "1111111111",
+            "role": role,
         },
     )
     assert register_response.status_code == 201
@@ -19,8 +20,8 @@ def _register_and_login(client, *, name: str, email: str) -> dict[str, str]:
 
 
 def _create_booking(client):
-    driver_headers = _register_and_login(client, name="Driver Chat", email="driver-chat@example.com")
-    passenger_headers = _register_and_login(client, name="Passenger Chat", email="passenger-chat@example.com")
+    driver_headers = _register_and_login(client, name="Driver Chat", email="driver-chat@example.com", role="driver")
+    passenger_headers = _register_and_login(client, name="Passenger Chat", email="passenger-chat@example.com", role="passenger")
 
     departure_time = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
     ride_response = client.post(

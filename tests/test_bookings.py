@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
 
-def _register_and_login(client, *, name: str, email: str) -> dict[str, str]:
+def _register_and_login(client, *, name: str, email: str, role: str) -> dict[str, str]:
     register_response = client.post(
         "/api/v1/auth/register",
         json={
@@ -9,6 +9,7 @@ def _register_and_login(client, *, name: str, email: str) -> dict[str, str]:
             "email": email,
             "password": "Password123",
             "phone_number": "1111111111",
+            "role": role,
         },
     )
     assert register_response.status_code == 201
@@ -38,18 +39,18 @@ def _create_ride(client, headers: dict[str, str], seats: int = 2) -> int:
 
 
 def test_driver_cannot_book_own_ride(client) -> None:
-    driver_headers = _register_and_login(client, name="Driver", email="driver@example.com")
+    driver_headers = _register_and_login(client, name="Driver", email="driver@example.com", role="driver")
     ride_id = _create_ride(client, driver_headers)
 
     response = client.post("/api/v1/bookings", headers=driver_headers, json={"ride_id": ride_id, "notes": "me"})
 
-    assert response.status_code == 400
-    assert response.json()["detail"] == "Driver cannot book own ride"
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Only passenger accounts can book rides"
 
 
 def test_booking_acceptance_reduces_available_seats(client) -> None:
-    driver_headers = _register_and_login(client, name="Driver", email="driver2@example.com")
-    passenger_headers = _register_and_login(client, name="Passenger", email="passenger@example.com")
+    driver_headers = _register_and_login(client, name="Driver", email="driver2@example.com", role="driver")
+    passenger_headers = _register_and_login(client, name="Passenger", email="passenger@example.com", role="passenger")
     ride_id = _create_ride(client, driver_headers, seats=1)
 
     create_booking = client.post(
@@ -74,8 +75,8 @@ def test_booking_acceptance_reduces_available_seats(client) -> None:
 
 
 def test_duplicate_booking_is_rejected(client) -> None:
-    driver_headers = _register_and_login(client, name="Driver", email="driver3@example.com")
-    passenger_headers = _register_and_login(client, name="Passenger", email="passenger2@example.com")
+    driver_headers = _register_and_login(client, name="Driver", email="driver3@example.com", role="driver")
+    passenger_headers = _register_and_login(client, name="Passenger", email="passenger2@example.com", role="passenger")
     ride_id = _create_ride(client, driver_headers)
 
     first_response = client.post("/api/v1/bookings", headers=passenger_headers, json={"ride_id": ride_id})
@@ -84,3 +85,33 @@ def test_duplicate_booking_is_rejected(client) -> None:
     assert first_response.status_code == 200
     assert second_response.status_code == 400
     assert second_response.json()["detail"] == "Passenger already has a booking for this ride"
+
+
+def test_booking_detail_includes_ride_and_participants(client) -> None:
+    driver_headers = _register_and_login(client, name="Driver", email="driver4@example.com", role="driver")
+    passenger_headers = _register_and_login(client, name="Passenger", email="passenger4@example.com", role="passenger")
+    ride_id = _create_ride(client, driver_headers)
+
+    create_booking = client.post(
+        "/api/v1/bookings",
+        headers=passenger_headers,
+        json={"ride_id": ride_id, "notes": "Need pickup"},
+    )
+    booking_id = create_booking.json()["id"]
+
+    accept_booking = client.patch(
+        f"/api/v1/bookings/{booking_id}",
+        headers=driver_headers,
+        json={"status": "accepted"},
+    )
+    assert accept_booking.status_code == 200
+
+    detail_response = client.get(f"/api/v1/bookings/{booking_id}", headers=passenger_headers)
+
+    assert detail_response.status_code == 200
+    body = detail_response.json()
+    assert body["ride"]["id"] == ride_id
+    assert body["driver"]["email"] == "driver4@example.com"
+    assert body["passenger"]["email"] == "passenger4@example.com"
+    assert body["ride"]["booking_id"] == booking_id
+    assert len(body["status_events"]) == 3

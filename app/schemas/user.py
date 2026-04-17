@@ -1,6 +1,7 @@
 from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from app.models.user import UserRole
 
 
 class UserResponse(BaseModel):
@@ -10,6 +11,7 @@ class UserResponse(BaseModel):
     full_name: str
     email: EmailStr
     phone_number: str | None
+    role: UserRole
     bio: str | None
     rating: float
     email_verified: bool

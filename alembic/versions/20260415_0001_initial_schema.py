@@ -7,6 +7,7 @@ Create Date: 2026-04-15 00:00:00.000000
 
 from alembic import op
 import sqlalchemy as sa
+from sqlalchemy.dialects import postgresql
 
 
 revision = "20260415_0001"
@@ -15,7 +16,13 @@ branch_labels = None
 depends_on = None
 
 
-booking_status_enum = sa.Enum("pending", "accepted", "rejected", name="bookingstatus")
+booking_status_enum = postgresql.ENUM(
+    "pending",
+    "accepted",
+    "rejected",
+    name="bookingstatus",
+    create_type=False,
+)
 
 
 def upgrade() -> None:
