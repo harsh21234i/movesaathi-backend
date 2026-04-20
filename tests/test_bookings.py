@@ -176,3 +176,42 @@ def test_driver_can_complete_booking_flow(client) -> None:
     detail_response = client.get(f"/api/v1/bookings/{booking_id}", headers=passenger_headers)
     assert detail_response.status_code == 200
     assert detail_response.json()["status_events"][-1]["label"] == "Trip completed"
+
+
+def test_create_booking_is_idempotent_with_same_key(client) -> None:
+    driver_headers = _register_and_login(client, name="Driver", email="driver7@example.com", role="driver")
+    passenger_headers = _register_and_login(client, name="Passenger", email="passenger7@example.com", role="passenger")
+    ride_id = _create_ride(client, driver_headers, seats=2)
+
+    idempotent_headers = {
+        **passenger_headers,
+        "Idempotency-Key": "booking-create-1",
+    }
+    first_response = client.post("/api/v1/bookings", headers=idempotent_headers, json={"ride_id": ride_id, "notes": "Near mall"})
+    second_response = client.post("/api/v1/bookings", headers=idempotent_headers, json={"ride_id": ride_id, "notes": "Near mall"})
+
+    assert first_response.status_code == 200
+    assert second_response.status_code == 200
+    assert first_response.json()["id"] == second_response.json()["id"]
+    assert second_response.headers["x-idempotent-replay"] == "true"
+
+    my_bookings = client.get("/api/v1/bookings/mine", headers=passenger_headers)
+    assert my_bookings.status_code == 200
+    assert len(my_bookings.json()) == 1
+
+
+def test_booking_idempotency_key_reuse_with_different_payload_is_rejected(client) -> None:
+    driver_headers = _register_and_login(client, name="Driver", email="driver8@example.com", role="driver")
+    passenger_headers = _register_and_login(client, name="Passenger", email="passenger8@example.com", role="passenger")
+    ride_id = _create_ride(client, driver_headers, seats=2)
+
+    idempotent_headers = {
+        **passenger_headers,
+        "Idempotency-Key": "booking-create-2",
+    }
+    first_response = client.post("/api/v1/bookings", headers=idempotent_headers, json={"ride_id": ride_id, "notes": "Near mall"})
+    second_response = client.post("/api/v1/bookings", headers=idempotent_headers, json={"ride_id": ride_id, "notes": "Near station"})
+
+    assert first_response.status_code == 200
+    assert second_response.status_code == 409
+    assert second_response.json()["detail"] == "Idempotency key reuse with different request payload"

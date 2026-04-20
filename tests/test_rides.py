@@ -168,3 +168,47 @@ def test_driver_can_complete_ride_and_passenger_booking_completes(client) -> Non
     booking_detail = client.get(f"/api/v1/bookings/{booking_id}", headers=passenger_headers)
     assert booking_detail.status_code == 200
     assert booking_detail.json()["status"] == "completed"
+
+
+def test_create_ride_is_idempotent_with_same_key(client, auth_headers) -> None:
+    departure_time = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
+    idempotent_headers = {
+        **auth_headers,
+        "Idempotency-Key": "ride-create-1",
+    }
+
+    first_response = client.post(
+        "/api/v1/rides",
+        headers=idempotent_headers,
+        json={
+            "origin": "Pune",
+            "destination": "Mumbai",
+            "departure_time": departure_time,
+            "available_seats": 3,
+            "price_per_seat": 400,
+            "vehicle_details": "Sedan",
+            "notes": "Airport pickup",
+        },
+    )
+    second_response = client.post(
+        "/api/v1/rides",
+        headers=idempotent_headers,
+        json={
+            "origin": "Pune",
+            "destination": "Mumbai",
+            "departure_time": departure_time,
+            "available_seats": 3,
+            "price_per_seat": 400,
+            "vehicle_details": "Sedan",
+            "notes": "Airport pickup",
+        },
+    )
+
+    assert first_response.status_code == 201
+    assert second_response.status_code == 201
+    assert first_response.json()["id"] == second_response.json()["id"]
+    assert second_response.headers["x-idempotent-replay"] == "true"
+
+    my_rides = client.get("/api/v1/rides/mine", headers=auth_headers)
+    assert my_rides.status_code == 200
+    assert len(my_rides.json()) == 1

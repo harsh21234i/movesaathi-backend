@@ -11,6 +11,7 @@ from app.core.config import settings
 from app.db.base import Base
 from app.main import app
 from app.core.rate_limit import rate_limiter
+from app.services.idempotency import idempotency_store
 from app.services.token_store import token_store
 
 
@@ -34,6 +35,9 @@ class UnavailableRedis:
     def setex(self, *args, **kwargs):
         raise RedisError("redis unavailable in tests")
 
+    def get(self, *args, **kwargs):
+        raise RedisError("redis unavailable in tests")
+
     def exists(self, *args, **kwargs):
         raise RedisError("redis unavailable in tests")
 
@@ -44,11 +48,14 @@ def setup_database(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, Non
     Base.metadata.create_all(bind=engine)
     monkeypatch.setattr(rate_limiter, "_redis", UnavailableRedis())
     monkeypatch.setattr(token_store, "_client", UnavailableRedis())
+    monkeypatch.setattr(idempotency_store, "_client", UnavailableRedis())
     token_store._in_memory_tokens.clear()
+    idempotency_store.reset()
     rate_limiter.reset()
     yield
     Base.metadata.drop_all(bind=engine)
     token_store._in_memory_tokens.clear()
+    idempotency_store.reset()
     rate_limiter.reset()
 
 

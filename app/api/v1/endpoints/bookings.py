@@ -1,7 +1,8 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db
+from app.api.idempotency import idempotent_execute
 from app.models.user import User
 from app.schemas.booking import (
     BookingCreate,
@@ -17,12 +18,18 @@ router = APIRouter()
 
 
 @router.post("", response_model=BookingResponse)
-def create_booking(
+async def create_booking(
     payload: BookingCreate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> BookingResponse:
-    return BookingService(db).create_booking(payload, current_user)
+    return await idempotent_execute(
+        request=request,
+        actor_id=current_user.id,
+        callback=lambda: BookingService(db).create_booking(payload, current_user),
+        serializer=lambda result: BookingResponse.model_validate(result),
+    )
 
 
 @router.get("/mine", response_model=list[PassengerBookingResponse])
@@ -51,10 +58,16 @@ def get_booking_detail(
 
 
 @router.patch("/{booking_id}", response_model=BookingResponse)
-def update_booking_status(
+async def update_booking_status(
     booking_id: int,
     payload: BookingStatusUpdate,
+    request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> BookingResponse:
-    return BookingService(db).update_status(booking_id, payload.status, current_user)
+    return await idempotent_execute(
+        request=request,
+        actor_id=current_user.id,
+        callback=lambda: BookingService(db).update_status(booking_id, payload.status, current_user),
+        serializer=lambda result: BookingResponse.model_validate(result),
+    )

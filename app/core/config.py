@@ -34,6 +34,7 @@ class Settings(BaseSettings):
     RESEND_VERIFICATION_RATE_LIMIT_WINDOW_SECONDS: int = 900
     CHAT_MESSAGE_RATE_LIMIT_MAX_REQUESTS: int = 20
     CHAT_MESSAGE_RATE_LIMIT_WINDOW_SECONDS: int = 60
+    IDEMPOTENCY_KEY_TTL_SECONDS: int = 86400
     DATABASE_URL: str = "postgresql+psycopg://postgres:postgres@db:5432/moovesaathi"
     REDIS_URL: str = "redis://redis:6379/0"
     REDIS_SOCKET_CONNECT_TIMEOUT: float = 0.5
