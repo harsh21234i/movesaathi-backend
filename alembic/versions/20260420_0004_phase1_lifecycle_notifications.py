@@ -39,20 +39,27 @@ notification_type_enum = postgresql.ENUM(
 
 def upgrade() -> None:
     bind = op.get_bind()
+    dialect_name = bind.dialect.name
 
-    for value in (
-        "cancelled_by_passenger",
-        "cancelled_by_driver",
-        "completed",
-    ):
-        op.execute(sa.text(f"ALTER TYPE bookingstatus ADD VALUE IF NOT EXISTS '{value}'"))
+    if dialect_name == "postgresql":
+        for value in (
+            "cancelled_by_passenger",
+            "cancelled_by_driver",
+            "completed",
+        ):
+            op.execute(sa.text(f"ALTER TYPE bookingstatus ADD VALUE IF NOT EXISTS '{value}'"))
 
-    ride_status_enum.create(bind, checkfirst=True)
-    notification_type_enum.create(bind, checkfirst=True)
+        ride_status_enum.create(bind, checkfirst=True)
+        notification_type_enum.create(bind, checkfirst=True)
+        ride_status_type: sa.TypeEngine = ride_status_enum
+        notification_type: sa.TypeEngine = notification_type_enum
+    else:
+        ride_status_type = sa.String(length=32)
+        notification_type = sa.String(length=64)
 
     op.add_column(
         "rides",
-        sa.Column("status", ride_status_enum, nullable=False, server_default="scheduled"),
+        sa.Column("status", ride_status_type, nullable=False, server_default="scheduled"),
     )
     op.execute(
         sa.text(
@@ -71,7 +78,7 @@ def upgrade() -> None:
         "notifications",
         sa.Column("id", sa.Integer(), primary_key=True),
         sa.Column("recipient_id", sa.Integer(), sa.ForeignKey("users.id", ondelete="CASCADE"), nullable=False),
-        sa.Column("type", notification_type_enum, nullable=False),
+        sa.Column("type", notification_type, nullable=False),
         sa.Column("title", sa.String(length=140), nullable=False),
         sa.Column("body", sa.Text(), nullable=False),
         sa.Column("is_read", sa.Boolean(), nullable=False, server_default=sa.false()),
@@ -87,5 +94,6 @@ def downgrade() -> None:
     op.drop_index(op.f("ix_notifications_id"), table_name="notifications")
     op.drop_table("notifications")
     op.drop_column("rides", "status")
-    notification_type_enum.drop(op.get_bind(), checkfirst=True)
-    ride_status_enum.drop(op.get_bind(), checkfirst=True)
+    if op.get_bind().dialect.name == "postgresql":
+        notification_type_enum.drop(op.get_bind(), checkfirst=True)
+        ride_status_enum.drop(op.get_bind(), checkfirst=True)
