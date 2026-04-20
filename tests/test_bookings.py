@@ -115,3 +115,64 @@ def test_booking_detail_includes_ride_and_participants(client) -> None:
     assert body["passenger"]["email"] == "passenger4@example.com"
     assert body["ride"]["booking_id"] == booking_id
     assert len(body["status_events"]) == 3
+
+
+def test_passenger_can_cancel_accepted_booking_and_driver_gets_notification(client) -> None:
+    driver_headers = _register_and_login(client, name="Driver", email="driver5@example.com", role="driver")
+    passenger_headers = _register_and_login(client, name="Passenger", email="passenger5@example.com", role="passenger")
+    ride_id = _create_ride(client, driver_headers, seats=1)
+
+    create_booking = client.post("/api/v1/bookings", headers=passenger_headers, json={"ride_id": ride_id})
+    booking_id = create_booking.json()["id"]
+
+    accept_booking = client.patch(
+        f"/api/v1/bookings/{booking_id}",
+        headers=driver_headers,
+        json={"status": "accepted"},
+    )
+    assert accept_booking.status_code == 200
+
+    cancel_booking = client.patch(
+        f"/api/v1/bookings/{booking_id}",
+        headers=passenger_headers,
+        json={"status": "cancelled_by_passenger"},
+    )
+    assert cancel_booking.status_code == 200
+    assert cancel_booking.json()["status"] == "cancelled_by_passenger"
+
+    ride_detail = client.get(f"/api/v1/rides/{ride_id}", headers=driver_headers)
+    assert ride_detail.status_code == 200
+    assert ride_detail.json()["available_seats"] == 1
+    assert ride_detail.json()["status"] == "scheduled"
+
+    notifications = client.get("/api/v1/notifications", headers=driver_headers)
+    assert notifications.status_code == 200
+    assert notifications.json()[0]["type"] == "booking_cancelled"
+
+
+def test_driver_can_complete_booking_flow(client) -> None:
+    driver_headers = _register_and_login(client, name="Driver", email="driver6@example.com", role="driver")
+    passenger_headers = _register_and_login(client, name="Passenger", email="passenger6@example.com", role="passenger")
+    ride_id = _create_ride(client, driver_headers, seats=2)
+
+    create_booking = client.post("/api/v1/bookings", headers=passenger_headers, json={"ride_id": ride_id})
+    booking_id = create_booking.json()["id"]
+
+    accept_booking = client.patch(
+        f"/api/v1/bookings/{booking_id}",
+        headers=driver_headers,
+        json={"status": "accepted"},
+    )
+    assert accept_booking.status_code == 200
+
+    complete_booking = client.patch(
+        f"/api/v1/bookings/{booking_id}",
+        headers=driver_headers,
+        json={"status": "completed"},
+    )
+    assert complete_booking.status_code == 200
+    assert complete_booking.json()["status"] == "completed"
+
+    detail_response = client.get(f"/api/v1/bookings/{booking_id}", headers=passenger_headers)
+    assert detail_response.status_code == 200
+    assert detail_response.json()["status_events"][-1]["label"] == "Trip completed"

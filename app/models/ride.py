@@ -1,9 +1,17 @@
 from datetime import datetime, timezone
+from enum import Enum
 
-from sqlalchemy import Boolean, DateTime, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, DateTime, Enum as SqlEnum, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base_class import Base
+
+
+class RideStatus(str, Enum):
+    scheduled = "scheduled"
+    full = "full"
+    completed = "completed"
+    cancelled = "cancelled"
 
 
 class Ride(Base):
@@ -18,6 +26,7 @@ class Ride(Base):
     price_per_seat: Mapped[float] = mapped_column(Float)
     vehicle_details: Mapped[str | None] = mapped_column(String(150), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[RideStatus] = mapped_column(SqlEnum(RideStatus), default=RideStatus.scheduled)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 

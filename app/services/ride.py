@@ -3,14 +3,18 @@ from sqlalchemy.orm import Session
 
 from app.models.ride import Ride
 from app.models.booking import BookingStatus
+from app.models.notification import NotificationType
+from app.models.ride import RideStatus
 from app.models.user import User, UserRole
 from app.repositories.ride import RideRepository
 from app.schemas.ride import RideCreate, RideSearchParams, RideUpdate
+from app.services.notification import NotificationService
 
 
 class RideService:
     def __init__(self, db: Session) -> None:
         self.rides = RideRepository(db)
+        self.notifications = NotificationService(db)
 
     def create_ride(self, payload: RideCreate, current_user: User) -> Ride:
         if current_user.role != UserRole.driver:
@@ -29,6 +33,8 @@ class RideService:
                 price_per_seat=payload.price_per_seat,
                 vehicle_details=payload.vehicle_details,
                 notes=payload.notes,
+                status=RideStatus.scheduled,
+                is_active=True,
             )
             saved_ride = self.rides.create(ride)
             self.rides.db.commit()
@@ -82,6 +88,11 @@ class RideService:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ride not found")
             if ride.driver_id != current_user.id:
                 raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only driver can update this ride")
+            if ride.status in {RideStatus.cancelled, RideStatus.completed}:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Completed or cancelled rides cannot be updated",
+                )
 
             accepted_bookings = sum(1 for booking in ride.bookings if booking.status == BookingStatus.accepted)
             minimum_available_seats = accepted_bookings
@@ -98,7 +109,8 @@ class RideService:
             ride.price_per_seat = payload.price_per_seat
             ride.vehicle_details = payload.vehicle_details
             ride.notes = payload.notes
-            ride.is_active = payload.available_seats > 0
+            ride.status = RideStatus.full if payload.available_seats == 0 else RideStatus.scheduled
+            ride.is_active = ride.status == RideStatus.scheduled
             saved_ride = self.rides.save(ride)
             self.rides.db.commit()
             return saved_ride
@@ -119,10 +131,60 @@ class RideService:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ride not found")
             if ride.driver_id != current_user.id:
                 raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only driver can cancel this ride")
+            if ride.status == RideStatus.completed:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Completed rides cannot be cancelled")
+            if ride.status == RideStatus.cancelled:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Ride is already cancelled")
 
+            ride.status = RideStatus.cancelled
             ride.is_active = False
+            for booking in ride.bookings:
+                if booking.status in {BookingStatus.pending, BookingStatus.accepted}:
+                    booking.status = BookingStatus.cancelled_by_driver
+                    self.notifications.create_notification(
+                        recipient_id=booking.passenger_id,
+                        notification_type=NotificationType.ride_cancelled,
+                        title="Ride cancelled",
+                        body=f"{ride.origin} to {ride.destination} has been cancelled by the driver.",
+                    )
             self.rides.save(ride)
             self.rides.db.commit()
+        except Exception:
+            self.rides.db.rollback()
+            raise
+
+    def complete_ride(self, ride_id: int, current_user: User) -> Ride:
+        if current_user.role != UserRole.driver:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only driver accounts can complete rides",
+            )
+
+        try:
+            ride = self.rides.get_by_id_for_update(ride_id)
+            if not ride:
+                raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ride not found")
+            if ride.driver_id != current_user.id:
+                raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only driver can complete this ride")
+            if ride.status == RideStatus.cancelled:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cancelled rides cannot be completed")
+            if ride.status == RideStatus.completed:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Ride is already completed")
+
+            ride.status = RideStatus.completed
+            ride.is_active = False
+            for booking in ride.bookings:
+                if booking.status == BookingStatus.accepted:
+                    booking.status = BookingStatus.completed
+                    self.notifications.create_notification(
+                        recipient_id=booking.passenger_id,
+                        notification_type=NotificationType.booking_completed,
+                        title="Trip completed",
+                        body=f"Your trip from {ride.origin} to {ride.destination} has been marked completed.",
+                    )
+            saved_ride = self.rides.save(ride)
+            self.rides.db.commit()
+            return saved_ride
         except Exception:
             self.rides.db.rollback()
             raise

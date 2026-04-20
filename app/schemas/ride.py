@@ -2,6 +2,7 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from app.models.ride import RideStatus
 from app.schemas.user import UserResponse
 
 
@@ -43,6 +44,7 @@ class RideResponse(BaseModel):
     price_per_seat: float
     vehicle_details: str | None
     notes: str | None
+    status: RideStatus
     is_active: bool
 
 

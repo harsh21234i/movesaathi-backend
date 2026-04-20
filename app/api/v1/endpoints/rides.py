@@ -57,6 +57,15 @@ def cancel_ride(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
+@router.post("/{ride_id}/complete", response_model=RideResponse)
+def complete_ride(
+    ride_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> RideResponse:
+    return RideService(db).complete_ride(ride_id, current_user)
+
+
 @router.get("", response_model=list[RideResponse])
 def search_rides(
     origin: str | None = Query(default=None),

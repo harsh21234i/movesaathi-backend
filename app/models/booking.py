@@ -11,6 +11,9 @@ class BookingStatus(str, Enum):
     pending = "pending"
     accepted = "accepted"
     rejected = "rejected"
+    cancelled_by_passenger = "cancelled_by_passenger"
+    cancelled_by_driver = "cancelled_by_driver"
+    completed = "completed"
 
 
 class Booking(Base):
