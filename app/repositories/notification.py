@@ -42,11 +42,13 @@ class NotificationRepository:
         return self.db.scalar(stmt)
 
     def mark_all_read(self, user_id: int, read_at: datetime) -> int:
-        notifications = self.list_for_user(user_id, limit=1000)
+        stmt = select(Notification).where(
+            Notification.recipient_id == user_id,
+            Notification.is_read.is_(False),
+        )
+        notifications = list(self.db.scalars(stmt).all())
         updated = 0
         for notification in notifications:
-            if notification.is_read:
-                continue
             notification.is_read = True
             notification.read_at = read_at
             self.db.add(notification)

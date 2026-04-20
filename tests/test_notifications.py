@@ -1,5 +1,9 @@
 from datetime import datetime, timedelta, timezone
 
+from app.models.notification import Notification, NotificationType
+from app.models.user import User, UserRole
+from app.repositories.notification import NotificationRepository
+
 
 def _register_and_login(client, *, name: str, email: str, role: str) -> dict[str, str]:
     register_response = client.post(
@@ -132,3 +136,33 @@ def test_notification_listing_supports_type_filter_and_pagination(client) -> Non
     assert len(filtered.json()["items"]) == 1
     assert len(second_page.json()["items"]) == 1
     assert filtered.json()["items"][0]["id"] != second_page.json()["items"][0]["id"]
+
+
+def test_mark_all_read_updates_more_than_one_page_of_notifications(db_session) -> None:
+    user = User(
+        full_name="Bulk Notify User",
+        email="bulk-notify@example.com",
+        phone_number="9999999999",
+        hashed_password="hashed",
+        role=UserRole.driver,
+    )
+    db_session.add(user)
+    db_session.flush()
+
+    repository = NotificationRepository(db_session)
+    for index in range(1005):
+        repository.create(
+            Notification(
+                recipient_id=user.id,
+                type=NotificationType.booking_requested,
+                title=f"Notification {index}",
+                body="Body",
+            )
+        )
+    db_session.commit()
+
+    updated = repository.mark_all_read(user.id, datetime.now(timezone.utc))
+    db_session.commit()
+
+    assert updated == 1005
+    assert repository.count_unread(user.id) == 0
