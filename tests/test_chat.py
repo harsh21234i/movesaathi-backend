@@ -46,11 +46,11 @@ def _create_booking(client):
         json={"ride_id": ride_id, "notes": "Window seat if possible"},
     )
     assert booking_response.status_code == 200
-    return booking_response.json()["id"], passenger_headers
+    return booking_response.json()["id"], passenger_headers, driver_headers
 
 
 def test_chat_message_rate_limit(client, rate_limit_settings) -> None:
-    booking_id, passenger_headers = _create_booking(client)
+    booking_id, passenger_headers, _ = _create_booking(client)
 
     assert client.post(
         "/api/v1/chat/messages",
@@ -69,3 +69,42 @@ def test_chat_message_rate_limit(client, rate_limit_settings) -> None:
         json={"booking_id": booking_id, "content": "third message"},
     )
     assert blocked.status_code == 429
+
+
+def test_mark_messages_seen_updates_existing_messages(client) -> None:
+    booking_id, passenger_headers, driver_headers = _create_booking(client)
+
+    sent = client.post(
+        "/api/v1/chat/messages",
+        headers=driver_headers,
+        json={"booking_id": booking_id, "content": "Pickup near gate 2"},
+    )
+    assert sent.status_code == 200
+    message_id = sent.json()["id"]
+    assert sent.json()["seen_at"] is None
+
+    seen_response = client.post(f"/api/v1/chat/{booking_id}/seen", headers=passenger_headers)
+    assert seen_response.status_code == 200
+    body = seen_response.json()
+    assert body["updated"] == 1
+    assert body["message_ids"] == [message_id]
+    assert body["seen_at"] is not None
+
+    messages_response = client.get(f"/api/v1/chat/{booking_id}/messages", headers=driver_headers)
+    assert messages_response.status_code == 200
+    assert messages_response.json()[0]["seen_at"] is not None
+
+
+def test_mark_messages_seen_does_not_mark_own_messages(client) -> None:
+    booking_id, passenger_headers, _ = _create_booking(client)
+
+    sent = client.post(
+        "/api/v1/chat/messages",
+        headers=passenger_headers,
+        json={"booking_id": booking_id, "content": "I will bring one bag"},
+    )
+    assert sent.status_code == 200
+
+    seen_response = client.post(f"/api/v1/chat/{booking_id}/seen", headers=passenger_headers)
+    assert seen_response.status_code == 200
+    assert seen_response.json()["updated"] == 0

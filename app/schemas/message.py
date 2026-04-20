@@ -17,3 +17,10 @@ class MessageResponse(BaseModel):
     content: str
     message_type: str
     created_at: datetime
+    seen_at: datetime | None
+
+
+class MessageSeenResponse(BaseModel):
+    updated: int
+    message_ids: list[int]
+    seen_at: datetime | None

@@ -1,5 +1,7 @@
 import asyncio
 
+import json
+
 from fastapi import APIRouter, Depends, Request, WebSocket, WebSocketDisconnect
 from jose import JWTError
 from redis import asyncio as redis_asyncio
@@ -12,7 +14,7 @@ from app.core.security import decode_token
 from app.models.user import User
 from app.repositories.booking import BookingRepository
 from app.repositories.user import UserRepository
-from app.schemas.message import MessageCreate, MessageResponse
+from app.schemas.message import MessageCreate, MessageResponse, MessageSeenResponse
 from app.services.chat import ChatService
 from app.websocket.manager import connection_manager
 
@@ -57,9 +59,19 @@ def send_message(
     return ChatService(db).save_message(payload, current_user)
 
 
+@router.post("/{booking_id}/seen", response_model=MessageSeenResponse)
+def mark_seen(
+    booking_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> MessageSeenResponse:
+    return ChatService(db).mark_messages_seen(booking_id, current_user)
+
+
 @router.websocket("/ws/{booking_id}")
 async def chat_socket(websocket: WebSocket, booking_id: int, token: str) -> None:
     db = next(get_db())
+    chat_service = ChatService(db)
     redis_client = redis_asyncio.from_url(
         settings.REDIS_URL,
         decode_responses=True,
@@ -92,6 +104,24 @@ async def chat_socket(websocket: WebSocket, booking_id: int, token: str) -> None
                     message = await asyncio.wait_for(websocket.receive(), timeout=0.1)
                     if message["type"] == "websocket.disconnect":
                         break
+                    if message["type"] != "websocket.receive":
+                        continue
+
+                    raw_text = message.get("text")
+                    if not raw_text:
+                        continue
+
+                    try:
+                        payload = json.loads(raw_text)
+                    except json.JSONDecodeError:
+                        continue
+
+                    if payload.get("event_type") == "typing":
+                        chat_service.publish_typing(
+                            booking_id,
+                            user,
+                            is_typing=bool(payload.get("is_typing")),
+                        )
                 except TimeoutError:
                     continue
         except WebSocketDisconnect:
