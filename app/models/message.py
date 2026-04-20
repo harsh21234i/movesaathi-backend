@@ -15,6 +15,7 @@ class Message(Base):
     content: Mapped[str] = mapped_column(Text)
     message_type: Mapped[str] = mapped_column(String(32), default="text")
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
+    seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
     booking = relationship("Booking")
     sender = relationship("User", back_populates="messages")
