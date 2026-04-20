@@ -123,3 +123,92 @@ def test_driver_can_update_and_cancel_ride(client) -> None:
     detail_response = client.get(f"/api/v1/rides/{ride_id}", headers=driver_headers)
     assert detail_response.status_code == 200
     assert detail_response.json()["is_active"] is False
+    assert detail_response.json()["status"] == "cancelled"
+
+
+def test_driver_can_complete_ride_and_passenger_booking_completes(client) -> None:
+    driver_headers = _register_and_login(client, name="Driver", email="ride-complete@example.com", role="driver")
+    passenger_headers = _register_and_login(client, name="Passenger", email="ride-complete-passenger@example.com", role="passenger")
+    departure_time = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
+
+    create_ride = client.post(
+        "/api/v1/rides",
+        headers=driver_headers,
+        json={
+            "origin": "Delhi",
+            "destination": "Jaipur",
+            "departure_time": departure_time,
+            "available_seats": 2,
+            "price_per_seat": 500,
+            "vehicle_details": "Hatchback",
+            "notes": "Evening trip",
+        },
+    )
+    ride_id = create_ride.json()["id"]
+
+    create_booking = client.post(
+        "/api/v1/bookings",
+        headers=passenger_headers,
+        json={"ride_id": ride_id, "notes": "Pickup near station"},
+    )
+    booking_id = create_booking.json()["id"]
+
+    accept_booking = client.patch(
+        f"/api/v1/bookings/{booking_id}",
+        headers=driver_headers,
+        json={"status": "accepted"},
+    )
+    assert accept_booking.status_code == 200
+
+    complete_ride = client.post(f"/api/v1/rides/{ride_id}/complete", headers=driver_headers)
+    assert complete_ride.status_code == 200
+    assert complete_ride.json()["status"] == "completed"
+    assert complete_ride.json()["is_active"] is False
+
+    booking_detail = client.get(f"/api/v1/bookings/{booking_id}", headers=passenger_headers)
+    assert booking_detail.status_code == 200
+    assert booking_detail.json()["status"] == "completed"
+
+
+def test_create_ride_is_idempotent_with_same_key(client, auth_headers) -> None:
+    departure_time = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
+    idempotent_headers = {
+        **auth_headers,
+        "Idempotency-Key": "ride-create-1",
+    }
+
+    first_response = client.post(
+        "/api/v1/rides",
+        headers=idempotent_headers,
+        json={
+            "origin": "Pune",
+            "destination": "Mumbai",
+            "departure_time": departure_time,
+            "available_seats": 3,
+            "price_per_seat": 400,
+            "vehicle_details": "Sedan",
+            "notes": "Airport pickup",
+        },
+    )
+    second_response = client.post(
+        "/api/v1/rides",
+        headers=idempotent_headers,
+        json={
+            "origin": "Pune",
+            "destination": "Mumbai",
+            "departure_time": departure_time,
+            "available_seats": 3,
+            "price_per_seat": 400,
+            "vehicle_details": "Sedan",
+            "notes": "Airport pickup",
+        },
+    )
+
+    assert first_response.status_code == 201
+    assert second_response.status_code == 201
+    assert first_response.json()["id"] == second_response.json()["id"]
+    assert second_response.headers["x-idempotent-replay"] == "true"
+
+    my_rides = client.get("/api/v1/rides/mine", headers=auth_headers)
+    assert my_rides.status_code == 200
+    assert len(my_rides.json()) == 1

@@ -4,7 +4,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
 from app.models.booking import Booking
-from app.models.ride import Ride
+from app.models.ride import Ride, RideStatus
 
 
 class RideRepository:
@@ -47,7 +47,7 @@ class RideRepository:
         return ride
 
     def search(self, origin: str | None = None, destination: str | None = None, departure_after: datetime | None = None) -> list[Ride]:
-        stmt = select(Ride).where(Ride.is_active.is_(True), Ride.available_seats > 0)
+        stmt = select(Ride).where(Ride.status == RideStatus.scheduled, Ride.is_active.is_(True), Ride.available_seats > 0)
         if origin:
             stmt = stmt.where(Ride.origin.ilike(f"%{origin}%"))
         if destination:
