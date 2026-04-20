@@ -1,7 +1,11 @@
 def test_health_check(client) -> None:
     response = client.get("/health")
     assert response.status_code == 200
-    assert response.json() == {"status": "ok"}
+    body = response.json()
+    assert body["status"] == "ok"
+    assert body["service"] == "MooveSaathi"
+    assert body["environment"] == "development"
+    assert body["request_id"]
 
 
 def test_register_login_and_me(client) -> None:

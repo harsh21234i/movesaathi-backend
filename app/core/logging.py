@@ -17,14 +17,28 @@ def configure_logging() -> None:
 
 async def log_requests(request: Request, call_next):
     request_id = request.headers.get("x-request-id", str(uuid.uuid4()))
+    request.state.request_id = request_id
     start = time.perf_counter()
+    logger = logging.getLogger("app.request")
 
-    response = await call_next(request)
+    try:
+        response = await call_next(request)
+    except Exception:
+        duration_ms = round((time.perf_counter() - start) * 1000, 2)
+        logger.exception(
+            "request_id=%s method=%s path=%s status_code=%s duration_ms=%s",
+            request_id,
+            request.method,
+            request.url.path,
+            500,
+            duration_ms,
+        )
+        raise
 
     duration_ms = round((time.perf_counter() - start) * 1000, 2)
     response.headers["x-request-id"] = request_id
 
-    logging.getLogger("app.request").info(
+    logger.info(
         "request_id=%s method=%s path=%s status_code=%s duration_ms=%s",
         request_id,
         request.method,

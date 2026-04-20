@@ -5,6 +5,7 @@ from fastapi.testclient import TestClient
 from redis.exceptions import RedisError
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.pool import StaticPool
 
 from app.api.deps import get_db
 from app.core.config import settings
@@ -14,12 +15,12 @@ from app.core.rate_limit import rate_limiter
 from app.services.idempotency import idempotency_store
 from app.services.token_store import token_store
 
-
-SQLALCHEMY_DATABASE_URL = "sqlite:///./test.db"
+SQLALCHEMY_DATABASE_URL = "sqlite://"
 
 engine = create_engine(
     SQLALCHEMY_DATABASE_URL,
     connect_args={"check_same_thread": False},
+    poolclass=StaticPool,
     future=True,
 )
 TestingSessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, expire_on_commit=False, future=True)
