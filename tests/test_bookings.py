@@ -147,7 +147,7 @@ def test_passenger_can_cancel_accepted_booking_and_driver_gets_notification(clie
 
     notifications = client.get("/api/v1/notifications", headers=driver_headers)
     assert notifications.status_code == 200
-    assert notifications.json()[0]["type"] == "booking_cancelled"
+    assert notifications.json()["items"][0]["type"] == "booking_cancelled"
 
 
 def test_driver_can_complete_booking_flow(client) -> None:
@@ -215,3 +215,36 @@ def test_booking_idempotency_key_reuse_with_different_payload_is_rejected(client
     assert first_response.status_code == 200
     assert second_response.status_code == 409
     assert second_response.json()["detail"] == "Idempotency key reuse with different request payload"
+
+
+def test_booking_lists_support_status_filter_and_pagination(client) -> None:
+    driver_headers = _register_and_login(client, name="Driver", email="driver-list@example.com", role="driver")
+    passenger_headers = _register_and_login(client, name="Passenger", email="passenger-list@example.com", role="passenger")
+    ride_id = _create_ride(client, driver_headers, seats=3)
+
+    first_booking = client.post("/api/v1/bookings", headers=passenger_headers, json={"ride_id": ride_id, "notes": "First"})
+    assert first_booking.status_code == 200
+
+    passenger_two_headers = _register_and_login(client, name="Passenger Two", email="passenger-list-two@example.com", role="passenger")
+    second_booking = client.post("/api/v1/bookings", headers=passenger_two_headers, json={"ride_id": ride_id, "notes": "Second"})
+    assert second_booking.status_code == 200
+
+    reject_response = client.patch(
+        f"/api/v1/bookings/{second_booking.json()['id']}",
+        headers=driver_headers,
+        json={"status": "rejected"},
+    )
+    assert reject_response.status_code == 200
+
+    pending_list = client.get("/api/v1/bookings/managed", headers=driver_headers, params={"booking_status": "pending"})
+    paged_list = client.get("/api/v1/bookings/managed", headers=driver_headers, params={"limit": 1, "offset": 0})
+    passenger_pending = client.get("/api/v1/bookings/mine", headers=passenger_headers, params={"booking_status": "pending"})
+
+    assert pending_list.status_code == 200
+    assert len(pending_list.json()) == 1
+    assert pending_list.json()[0]["status"] == "pending"
+    assert paged_list.status_code == 200
+    assert len(paged_list.json()) == 1
+    assert passenger_pending.status_code == 200
+    assert len(passenger_pending.json()) == 1
+    assert passenger_pending.json()[0]["status"] == "pending"

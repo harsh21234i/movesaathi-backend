@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from enum import Enum
 
-from sqlalchemy import Boolean, DateTime, Enum as SqlEnum, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, CheckConstraint, DateTime, Enum as SqlEnum, Float, ForeignKey, Index, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base_class import Base
@@ -16,6 +16,12 @@ class RideStatus(str, Enum):
 
 class Ride(Base):
     __tablename__ = "rides"
+    __table_args__ = (
+        CheckConstraint("available_seats >= 0", name="ck_rides_available_seats_non_negative"),
+        CheckConstraint("price_per_seat >= 0", name="ck_rides_price_per_seat_non_negative"),
+        CheckConstraint("origin <> destination", name="ck_rides_origin_destination_distinct"),
+        Index("ix_rides_driver_status_departure", "driver_id", "status", "departure_time"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     driver_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))

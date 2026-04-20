@@ -48,6 +48,8 @@ class RideService:
             origin=params.origin,
             destination=params.destination,
             departure_after=params.departure_after,
+            limit=params.limit,
+            offset=params.offset,
         )
 
     def get_ride_detail(self, ride_id: int, current_user: User | None = None) -> Ride:
@@ -189,10 +191,17 @@ class RideService:
             self.rides.db.rollback()
             raise
 
-    def list_driver_rides(self, current_user: User) -> list[Ride]:
+    def list_driver_rides(
+        self,
+        current_user: User,
+        *,
+        ride_status: RideStatus | None = None,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> list[Ride]:
         if current_user.role != UserRole.driver:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Only driver accounts can view published rides",
             )
-        return self.rides.list_by_driver(current_user.id)
+        return self.rides.list_by_driver(current_user.id, status=ride_status, limit=limit, offset=offset)

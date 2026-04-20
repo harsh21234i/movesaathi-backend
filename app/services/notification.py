@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.models.notification import Notification, NotificationType
 from app.models.user import User
 from app.repositories.notification import NotificationRepository
+from app.schemas.notification import NotificationListResponse
 
 
 class NotificationService:
@@ -28,8 +29,24 @@ class NotificationService:
         )
         return self.notifications.create(notification)
 
-    def list_notifications(self, current_user: User) -> list[Notification]:
-        return self.notifications.list_for_user(current_user.id)
+    def list_notifications(
+        self,
+        current_user: User,
+        *,
+        is_read: bool | None = None,
+        notification_type: NotificationType | None = None,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> NotificationListResponse:
+        items = self.notifications.list_for_user(
+            current_user.id,
+            is_read=is_read,
+            notification_type=notification_type,
+            limit=limit,
+            offset=offset,
+        )
+        unread_count = self.notifications.count_unread(current_user.id)
+        return NotificationListResponse(items=items, unread_count=unread_count)
 
     def mark_as_read(self, notification_id: int, current_user: User) -> Notification:
         notification = self.notifications.get_for_user(notification_id, current_user.id)

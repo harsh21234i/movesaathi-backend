@@ -46,7 +46,15 @@ class RideRepository:
         self.db.refresh(ride)
         return ride
 
-    def search(self, origin: str | None = None, destination: str | None = None, departure_after: datetime | None = None) -> list[Ride]:
+    def search(
+        self,
+        origin: str | None = None,
+        destination: str | None = None,
+        departure_after: datetime | None = None,
+        *,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> list[Ride]:
         stmt = select(Ride).where(Ride.status == RideStatus.scheduled, Ride.is_active.is_(True), Ride.available_seats > 0)
         if origin:
             stmt = stmt.where(Ride.origin.ilike(f"%{origin}%"))
@@ -54,9 +62,19 @@ class RideRepository:
             stmt = stmt.where(Ride.destination.ilike(f"%{destination}%"))
         if departure_after:
             stmt = stmt.where(Ride.departure_time >= departure_after)
-        stmt = stmt.order_by(Ride.departure_time)
+        stmt = stmt.order_by(Ride.departure_time).offset(offset).limit(limit)
         return list(self.db.scalars(stmt).all())
 
-    def list_by_driver(self, driver_id: int) -> list[Ride]:
-        stmt = select(Ride).where(Ride.driver_id == driver_id).order_by(Ride.departure_time)
+    def list_by_driver(
+        self,
+        driver_id: int,
+        *,
+        status: RideStatus | None = None,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> list[Ride]:
+        stmt = select(Ride).where(Ride.driver_id == driver_id)
+        if status:
+            stmt = stmt.where(Ride.status == status)
+        stmt = stmt.order_by(Ride.departure_time).offset(offset).limit(limit)
         return list(self.db.scalars(stmt).all())

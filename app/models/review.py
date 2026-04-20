@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, ForeignKey, Integer, SmallInteger, Text, UniqueConstraint
+from sqlalchemy import CheckConstraint, DateTime, ForeignKey, Integer, SmallInteger, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base_class import Base
@@ -8,7 +8,11 @@ from app.db.base_class import Base
 
 class Review(Base):
     __tablename__ = "reviews"
-    __table_args__ = (UniqueConstraint("booking_id", "reviewer_id", name="uq_review_booking_reviewer"),)
+    __table_args__ = (
+        UniqueConstraint("booking_id", "reviewer_id", name="uq_review_booking_reviewer"),
+        CheckConstraint("rating >= 1 AND rating <= 5", name="ck_reviews_rating_range"),
+        CheckConstraint("reviewer_id <> reviewee_id", name="ck_reviews_reviewer_reviewee_distinct"),
+    )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
     reviewer_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))

@@ -1,7 +1,7 @@
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
-from app.models.booking import Booking
+from app.models.booking import Booking, BookingStatus
 from app.models.ride import Ride
 
 
@@ -21,16 +21,33 @@ class BookingRepository:
         stmt = select(Booking).where(Booking.ride_id == ride_id, Booking.passenger_id == passenger_id)
         return self.db.scalar(stmt)
 
-    def list_by_passenger(self, passenger_id: int) -> list[Booking]:
+    def list_by_passenger(
+        self,
+        passenger_id: int,
+        *,
+        status: BookingStatus | None = None,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> list[Booking]:
         stmt = (
             select(Booking)
             .options(joinedload(Booking.ride))
             .where(Booking.passenger_id == passenger_id)
             .order_by(Booking.created_at.desc())
         )
+        if status:
+            stmt = stmt.where(Booking.status == status)
+        stmt = stmt.offset(offset).limit(limit)
         return list(self.db.scalars(stmt).all())
 
-    def list_for_driver(self, driver_id: int) -> list[Booking]:
+    def list_for_driver(
+        self,
+        driver_id: int,
+        *,
+        status: BookingStatus | None = None,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> list[Booking]:
         stmt = (
             select(Booking)
             .join(Ride, Booking.ride_id == Ride.id)
@@ -38,6 +55,9 @@ class BookingRepository:
             .where(Ride.driver_id == driver_id)
             .order_by(Booking.created_at.desc())
         )
+        if status:
+            stmt = stmt.where(Booking.status == status)
+        stmt = stmt.offset(offset).limit(limit)
         return list(self.db.scalars(stmt).unique().all())
 
     def create(self, booking: Booking) -> Booking:

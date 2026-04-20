@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db
 from app.api.idempotency import idempotent_execute
+from app.models.ride import RideStatus
 from app.models.user import User
 from app.schemas.ride import RideCreate, RideDetailResponse, RideResponse, RideSearchParams, RideUpdate
 from app.services.ride import RideService
@@ -30,10 +31,14 @@ async def create_ride(
 
 @router.get("/mine", response_model=list[RideResponse])
 def list_my_rides(
+    ride_status: str | None = Query(default=None, alias="status"),
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> list[RideResponse]:
-    return RideService(db).list_driver_rides(current_user)
+    normalized_status = RideStatus(ride_status) if ride_status else None
+    return RideService(db).list_driver_rides(current_user, ride_status=normalized_status, limit=limit, offset=offset)
 
 
 @router.get("/{ride_id}", response_model=RideDetailResponse)
@@ -101,7 +106,15 @@ def search_rides(
     origin: str | None = Query(default=None),
     destination: str | None = Query(default=None),
     departure_after: datetime | None = Query(default=None),
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
 ) -> list[RideResponse]:
-    params = RideSearchParams(origin=origin, destination=destination, departure_after=departure_after)
+    params = RideSearchParams(
+        origin=origin,
+        destination=destination,
+        departure_after=departure_after,
+        limit=limit,
+        offset=offset,
+    )
     return RideService(db).search_rides(params)

@@ -12,6 +12,7 @@ from app.core.exceptions import (
     unhandled_exception_handler,
     validation_exception_handler,
 )
+from app.core.headers import add_security_headers
 from app.core.logging import configure_logging, log_requests
 from app.db.session import initialize_database
 from app.services.health import build_readiness_payload
@@ -43,6 +44,7 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     app.middleware("http")(log_requests)
+    app.middleware("http")(add_security_headers)
     app.add_exception_handler(StarletteHTTPException, http_exception_handler)
     app.add_exception_handler(RequestValidationError, validation_exception_handler)
     app.add_exception_handler(Exception, unhandled_exception_handler)

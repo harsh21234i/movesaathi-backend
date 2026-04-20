@@ -49,14 +49,86 @@ def test_notification_listing_and_read_state(client) -> None:
     notifications = client.get("/api/v1/notifications", headers=driver_headers)
     assert notifications.status_code == 200
     body = notifications.json()
-    assert len(body) == 1
-    assert body[0]["type"] == "booking_requested"
-    assert body[0]["is_read"] is False
+    assert body["unread_count"] == 1
+    assert len(body["items"]) == 1
+    assert body["items"][0]["type"] == "booking_requested"
+    assert body["items"][0]["is_read"] is False
 
-    mark_read = client.patch(f"/api/v1/notifications/{body[0]['id']}/read", headers=driver_headers)
+    mark_read = client.patch(f"/api/v1/notifications/{body['items'][0]['id']}/read", headers=driver_headers)
     assert mark_read.status_code == 200
     assert mark_read.json()["is_read"] is True
+
+    unread_only = client.get("/api/v1/notifications", headers=driver_headers, params={"is_read": "false"})
+    assert unread_only.status_code == 200
+    assert unread_only.json()["unread_count"] == 0
+    assert unread_only.json()["items"] == []
 
     mark_all = client.patch("/api/v1/notifications/read-all", headers=driver_headers)
     assert mark_all.status_code == 200
     assert mark_all.json()["updated"] == 0
+
+
+def test_notification_listing_supports_type_filter_and_pagination(client) -> None:
+    driver_headers = _register_and_login(client, name="Driver", email="notify-driver-two@example.com", role="driver")
+    passenger_headers = _register_and_login(client, name="Passenger", email="notify-passenger-two@example.com", role="passenger")
+    departure_time = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
+
+    first_ride = client.post(
+        "/api/v1/rides",
+        headers=driver_headers,
+        json={
+            "origin": "Noida",
+            "destination": "Delhi",
+            "departure_time": departure_time,
+            "available_seats": 2,
+            "price_per_seat": 100,
+            "vehicle_details": "Blue WagonR",
+            "notes": "Morning ride",
+        },
+    )
+    second_ride = client.post(
+        "/api/v1/rides",
+        headers=driver_headers,
+        json={
+            "origin": "Noida",
+            "destination": "Gurugram",
+            "departure_time": (datetime.now(timezone.utc) + timedelta(days=2)).isoformat(),
+            "available_seats": 2,
+            "price_per_seat": 150,
+            "vehicle_details": "Grey Swift",
+            "notes": "Evening ride",
+        },
+    )
+    assert first_ride.status_code == 201
+    assert second_ride.status_code == 201
+
+    first_booking = client.post(
+        "/api/v1/bookings",
+        headers=passenger_headers,
+        json={"ride_id": first_ride.json()["id"], "notes": "Near gate"},
+    )
+    second_booking = client.post(
+        "/api/v1/bookings",
+        headers=passenger_headers,
+        json={"ride_id": second_ride.json()["id"], "notes": "Near station"},
+    )
+    assert first_booking.status_code == 200
+    assert second_booking.status_code == 200
+
+    filtered = client.get(
+        "/api/v1/notifications",
+        headers=driver_headers,
+        params={"notification_type": "booking_requested", "limit": 1, "offset": 0},
+    )
+    second_page = client.get(
+        "/api/v1/notifications",
+        headers=driver_headers,
+        params={"notification_type": "booking_requested", "limit": 1, "offset": 1},
+    )
+
+    assert filtered.status_code == 200
+    assert second_page.status_code == 200
+    assert filtered.json()["unread_count"] == 2
+    assert len(filtered.json()["items"]) == 1
+    assert len(second_page.json()["items"]) == 1
+    assert filtered.json()["items"][0]["id"] != second_page.json()["items"][0]["id"]

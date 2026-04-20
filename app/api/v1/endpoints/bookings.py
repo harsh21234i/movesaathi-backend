@@ -1,8 +1,9 @@
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db
 from app.api.idempotency import idempotent_execute
+from app.models.booking import BookingStatus
 from app.models.user import User
 from app.schemas.booking import (
     BookingCreate,
@@ -34,18 +35,24 @@ async def create_booking(
 
 @router.get("/mine", response_model=list[PassengerBookingResponse])
 def list_my_bookings(
+    booking_status: BookingStatus | None = Query(default=None),
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> list[PassengerBookingResponse]:
-    return BookingService(db).list_passenger_bookings(current_user)
+    return BookingService(db).list_passenger_bookings(current_user, booking_status=booking_status, limit=limit, offset=offset)
 
 
 @router.get("/managed", response_model=list[DriverBookingResponse])
 def list_managed_bookings(
+    booking_status: BookingStatus | None = Query(default=None),
+    limit: int = Query(default=20, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ) -> list[DriverBookingResponse]:
-    return BookingService(db).list_driver_bookings(current_user)
+    return BookingService(db).list_driver_bookings(current_user, booking_status=booking_status, limit=limit, offset=offset)
 
 
 @router.get("/{booking_id}", response_model=BookingDetailResponse)

@@ -26,6 +26,34 @@ def test_create_and_search_ride(client, auth_headers) -> None:
     assert search_response.json()[0]["destination"] == "Gurugram"
 
 
+def test_ride_search_supports_limit_and_offset(client, auth_headers) -> None:
+    base_departure = datetime.now(timezone.utc) + timedelta(days=1)
+    for index, destination in enumerate(["Noida", "Gurugram", "Faridabad"]):
+        response = client.post(
+            "/api/v1/rides",
+            headers=auth_headers,
+            json={
+                "origin": "Delhi",
+                "destination": destination,
+                "departure_time": (base_departure + timedelta(hours=index)).isoformat(),
+                "available_seats": 3,
+                "price_per_seat": 250,
+                "vehicle_details": "White Swift",
+                "notes": f"Ride {index}",
+            },
+        )
+        assert response.status_code == 201
+
+    first_page = client.get("/api/v1/rides", params={"origin": "Delhi", "limit": 1, "offset": 0})
+    second_page = client.get("/api/v1/rides", params={"origin": "Delhi", "limit": 1, "offset": 1})
+
+    assert first_page.status_code == 200
+    assert second_page.status_code == 200
+    assert len(first_page.json()) == 1
+    assert len(second_page.json()) == 1
+    assert first_page.json()[0]["id"] != second_page.json()[0]["id"]
+
+
 def _register_and_login(client, *, name: str, email: str, role: str) -> dict[str, str]:
     register_response = client.post(
         "/api/v1/auth/register",
@@ -212,3 +240,49 @@ def test_create_ride_is_idempotent_with_same_key(client, auth_headers) -> None:
     my_rides = client.get("/api/v1/rides/mine", headers=auth_headers)
     assert my_rides.status_code == 200
     assert len(my_rides.json()) == 1
+
+
+def test_driver_ride_list_supports_status_filter_and_pagination(client) -> None:
+    driver_headers = _register_and_login(client, name="Driver", email="ride-list@example.com", role="driver")
+    departure_time = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
+
+    first_ride = client.post(
+        "/api/v1/rides",
+        headers=driver_headers,
+        json={
+            "origin": "Delhi",
+            "destination": "Noida",
+            "departure_time": departure_time,
+            "available_seats": 2,
+            "price_per_seat": 200,
+            "vehicle_details": "Sedan",
+            "notes": "Morning",
+        },
+    )
+    second_ride = client.post(
+        "/api/v1/rides",
+        headers=driver_headers,
+        json={
+            "origin": "Delhi",
+            "destination": "Jaipur",
+            "departure_time": (datetime.now(timezone.utc) + timedelta(days=2)).isoformat(),
+            "available_seats": 2,
+            "price_per_seat": 500,
+            "vehicle_details": "SUV",
+            "notes": "Long route",
+        },
+    )
+    assert first_ride.status_code == 201
+    assert second_ride.status_code == 201
+
+    cancel_response = client.delete(f"/api/v1/rides/{first_ride.json()['id']}", headers=driver_headers)
+    assert cancel_response.status_code == 204
+
+    cancelled_only = client.get("/api/v1/rides/mine", headers=driver_headers, params={"status": "cancelled"})
+    paged_all = client.get("/api/v1/rides/mine", headers=driver_headers, params={"limit": 1, "offset": 0})
+
+    assert cancelled_only.status_code == 200
+    assert len(cancelled_only.json()) == 1
+    assert cancelled_only.json()[0]["status"] == "cancelled"
+    assert paged_all.status_code == 200
+    assert len(paged_all.json()) == 1

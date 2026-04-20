@@ -14,6 +14,7 @@ class Settings(BaseSettings):
     )
 
     PROJECT_NAME: str = "MooveSaathi"
+    TOKEN_ISSUER: str = "moovesaathi-backend"
     APP_ENV: Literal["development", "test", "production"] = "development"
     DEBUG: bool = False
     API_V1_STR: str = "/api/v1"

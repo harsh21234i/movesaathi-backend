@@ -73,21 +73,35 @@ class BookingService:
             self.bookings.db.rollback()
             raise
 
-    def list_passenger_bookings(self, current_user: User) -> list[Booking]:
+    def list_passenger_bookings(
+        self,
+        current_user: User,
+        *,
+        booking_status: BookingStatus | None = None,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> list[Booking]:
         if current_user.role != UserRole.passenger:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Only passenger accounts can view passenger bookings",
             )
-        return self.bookings.list_by_passenger(current_user.id)
+        return self.bookings.list_by_passenger(current_user.id, status=booking_status, limit=limit, offset=offset)
 
-    def list_driver_bookings(self, current_user: User) -> list[Booking]:
+    def list_driver_bookings(
+        self,
+        current_user: User,
+        *,
+        booking_status: BookingStatus | None = None,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> list[Booking]:
         if current_user.role != UserRole.driver:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Only driver accounts can view booking requests",
             )
-        return self.bookings.list_for_driver(current_user.id)
+        return self.bookings.list_for_driver(current_user.id, status=booking_status, limit=limit, offset=offset)
 
     def get_booking_detail(self, booking_id: int, current_user: User) -> Booking:
         booking = self.bookings.get_by_id(booking_id)

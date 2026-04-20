@@ -13,7 +13,13 @@ def create_token(subject: str, token_type: str, expires_delta: timedelta) -> str
     expire = datetime.now(timezone.utc) + (
         expires_delta
     )
-    payload = {"sub": subject, "exp": expire, "type": token_type, "jti": str(uuid.uuid4())}
+    payload = {
+        "sub": subject,
+        "exp": expire,
+        "type": token_type,
+        "jti": str(uuid.uuid4()),
+        "iss": settings.TOKEN_ISSUER,
+    }
     return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
 
 
@@ -58,4 +64,9 @@ def get_password_hash(password: str) -> str:
 
 
 def decode_token(token: str) -> dict:
-    return jwt.decode(token, settings.SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
+    return jwt.decode(
+        token,
+        settings.SECRET_KEY,
+        algorithms=[settings.JWT_ALGORITHM],
+        issuer=settings.TOKEN_ISSUER,
+    )
