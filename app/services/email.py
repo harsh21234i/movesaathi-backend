@@ -1,5 +1,6 @@
 import logging
 import smtplib
+from collections.abc import Callable
 from email.message import EmailMessage
 
 from app.core.config import settings
@@ -61,4 +62,13 @@ class EmailService:
             subject="Verify your MooveSaathi account",
             text_body=text_body,
             html_body=html_body,
+        )
+
+    def queue_verification_email(self, *, to_email: str, full_name: str, verification_token: str, enqueue: Callable[[Callable[[], None]], None]) -> None:
+        enqueue(
+            lambda: self.send_verification_email(
+                to_email=to_email,
+                full_name=full_name,
+                verification_token=verification_token,
+            )
         )

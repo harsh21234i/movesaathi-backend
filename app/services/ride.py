@@ -1,5 +1,6 @@
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
+from sqlalchemy.orm import sessionmaker
 
 from app.models.ride import Ride
 from app.models.booking import BookingStatus
@@ -8,6 +9,7 @@ from app.models.ride import RideStatus
 from app.models.user import User, UserRole
 from app.repositories.ride import RideRepository
 from app.schemas.ride import RideCreate, RideSearchParams, RideUpdate
+from app.services.notification_jobs import enqueue_notification
 from app.services.notification import NotificationService
 
 
@@ -15,6 +17,13 @@ class RideService:
     def __init__(self, db: Session) -> None:
         self.rides = RideRepository(db)
         self.notifications = NotificationService(db)
+        self.notification_session_factory = sessionmaker(
+            bind=db.get_bind(),
+            autoflush=False,
+            autocommit=False,
+            expire_on_commit=False,
+            future=True,
+        )
 
     def create_ride(self, payload: RideCreate, current_user: User) -> Ride:
         if current_user.role != UserRole.driver:
@@ -143,7 +152,8 @@ class RideService:
             for booking in ride.bookings:
                 if booking.status in {BookingStatus.pending, BookingStatus.accepted}:
                     booking.status = BookingStatus.cancelled_by_driver
-                    self.notifications.create_notification(
+                    enqueue_notification(
+                        session_factory=self.notification_session_factory,
                         recipient_id=booking.passenger_id,
                         notification_type=NotificationType.ride_cancelled,
                         title="Ride cancelled",
@@ -178,7 +188,8 @@ class RideService:
             for booking in ride.bookings:
                 if booking.status == BookingStatus.accepted:
                     booking.status = BookingStatus.completed
-                    self.notifications.create_notification(
+                    enqueue_notification(
+                        session_factory=self.notification_session_factory,
                         recipient_id=booking.passenger_id,
                         notification_type=NotificationType.booking_completed,
                         title="Trip completed",

@@ -15,14 +15,17 @@ from app.core.exceptions import (
 from app.core.headers import add_security_headers
 from app.core.logging import configure_logging, log_requests
 from app.db.session import initialize_database
+from app.services.job_queue import job_queue
 from app.services.health import build_readiness_payload
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI):
+    job_queue.start()
     initialize_database()
     yield
+    job_queue.stop()
 
 
 def create_app() -> FastAPI:

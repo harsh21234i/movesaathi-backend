@@ -37,6 +37,26 @@ def test_register_login_and_me(client) -> None:
     assert me_response.json()["email"] == "test@example.com"
 
 
+def test_register_queues_verification_email_without_waiting_on_delivery(client, monkeypatch) -> None:
+    queued: list[str] = []
+
+    monkeypatch.setattr("app.services.auth.job_queue.enqueue", lambda job: queued.append(job.name))
+
+    response = client.post(
+        "/api/v1/auth/register",
+        json={
+            "full_name": "Queue User",
+            "email": "queue@example.com",
+            "password": "Password123",
+            "phone_number": "9999999999",
+            "role": "driver",
+        },
+    )
+
+    assert response.status_code == 201
+    assert queued == ["send-verification-email:1"]
+
+
 def test_register_rejects_duplicate_email(client) -> None:
     payload = {
         "full_name": "Test User",

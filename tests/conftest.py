@@ -47,6 +47,8 @@ class UnavailableRedis:
 def setup_database(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, None]:
     Base.metadata.drop_all(bind=engine)
     Base.metadata.create_all(bind=engine)
+    monkeypatch.setattr(settings, "JOBS_SYNCHRONOUS", True)
+    monkeypatch.setattr(settings, "JOB_WORKER_ENABLED", False)
     monkeypatch.setattr(rate_limiter, "_redis", UnavailableRedis())
     monkeypatch.setattr(token_store, "_client", UnavailableRedis())
     monkeypatch.setattr(idempotency_store, "_client", UnavailableRedis())
