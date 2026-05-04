@@ -74,6 +74,38 @@ def test_booking_acceptance_reduces_available_seats(client) -> None:
     assert rides_response.json() == []
 
 
+def test_second_booking_cannot_be_accepted_after_seat_is_full(client) -> None:
+    driver_headers = _register_and_login(client, name="Driver", email="driver-overbook@example.com", role="driver")
+    passenger_one_headers = _register_and_login(client, name="Passenger One", email="passenger-overbook-1@example.com", role="passenger")
+    passenger_two_headers = _register_and_login(client, name="Passenger Two", email="passenger-overbook-2@example.com", role="passenger")
+    ride_id = _create_ride(client, driver_headers, seats=1)
+
+    first_booking = client.post("/api/v1/bookings", headers=passenger_one_headers, json={"ride_id": ride_id})
+    second_booking = client.post("/api/v1/bookings", headers=passenger_two_headers, json={"ride_id": ride_id})
+
+    assert first_booking.status_code == 200
+    assert second_booking.status_code == 200
+
+    accepted_first = client.patch(
+        f"/api/v1/bookings/{first_booking.json()['id']}",
+        headers=driver_headers,
+        json={"status": "accepted"},
+    )
+    assert accepted_first.status_code == 200
+
+    rejected_second = client.patch(
+        f"/api/v1/bookings/{second_booking.json()['id']}",
+        headers=driver_headers,
+        json={"status": "accepted"},
+    )
+    assert rejected_second.status_code == 400
+    assert rejected_second.json()["detail"] == "No seats available"
+
+    second_detail = client.get(f"/api/v1/bookings/{second_booking.json()['id']}", headers=passenger_two_headers)
+    assert second_detail.status_code == 200
+    assert second_detail.json()["status"] == "pending"
+
+
 def test_duplicate_booking_is_rejected(client) -> None:
     driver_headers = _register_and_login(client, name="Driver", email="driver3@example.com", role="driver")
     passenger_headers = _register_and_login(client, name="Passenger", email="passenger2@example.com", role="passenger")
