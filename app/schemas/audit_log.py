@@ -19,3 +19,10 @@ class AuditLogResponse(BaseModel):
 
 class AuditLogListResponse(BaseModel):
     items: list[AuditLogResponse]
+
+
+class AuditLogSummaryResponse(BaseModel):
+    total: int
+    by_action: dict[str, int]
+    by_severity: dict[str, int]
+    recent_items: list[AuditLogResponse]

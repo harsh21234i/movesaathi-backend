@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from datetime import datetime, timedelta, timezone
+
 import json
 
 from fastapi import HTTPException, Request, status
@@ -8,7 +10,7 @@ from sqlalchemy.orm import Session
 from app.models.audit_log import AuditLog
 from app.models.user import User
 from app.repositories.audit_log import AuditLogRepository
-from app.schemas.audit_log import AuditLogListResponse
+from app.schemas.audit_log import AuditLogListResponse, AuditLogSummaryResponse
 
 
 class AuditLogService:
@@ -47,3 +49,22 @@ class AuditLogService:
         if current_user.id != user_id:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Audit logs can only be viewed for your own account")
         return self.list_my_audit_logs(current_user, limit=limit, offset=offset)
+
+    def summarize_my_audit_logs(self, current_user: User, *, recent_limit: int = 10) -> AuditLogSummaryResponse:
+        total = self.logs.count_for_user(current_user.id)
+        by_action = self.logs.counts_by_action_for_user(current_user.id)
+        by_severity = self.logs.counts_by_severity_for_user(current_user.id)
+        recent_items = self.logs.list_for_user(current_user.id, limit=recent_limit, offset=0)
+        return AuditLogSummaryResponse(
+            total=total,
+            by_action=by_action,
+            by_severity=by_severity,
+            recent_items=recent_items,
+        )
+
+    def purge_older_than(self, *, days: int) -> int:
+        if days < 1:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="days must be greater than zero")
+        deleted = self.logs.delete_older_than(days=days)
+        self.logs.db.commit()
+        return deleted

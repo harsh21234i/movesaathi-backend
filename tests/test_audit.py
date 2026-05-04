@@ -47,3 +47,28 @@ def test_audit_logs_capture_sensitive_actions(client) -> None:
     actions = [item["action"] for item in logs.json()["items"]]
     assert "email_verified" in actions
     assert "user_logged_in" in actions
+
+
+def test_audit_summary_groups_activity(client) -> None:
+    client.post(
+        "/api/v1/auth/register",
+        json={
+            "full_name": "Summary User",
+            "email": "summary-user@example.com",
+            "password": "Password123",
+            "phone_number": "1111111111",
+            "role": "passenger",
+        },
+    )
+    login = client.post("/api/v1/auth/login", json={"email": "summary-user@example.com", "password": "Password123"})
+    headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+
+    response = client.get("/api/v1/audit/me/summary", headers=headers)
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["total"] >= 2
+    assert body["by_action"]["user_registered"] >= 1
+    assert body["by_action"]["user_logged_in"] >= 1
+    assert body["by_severity"]["info"] >= 1
+    assert body["recent_items"]

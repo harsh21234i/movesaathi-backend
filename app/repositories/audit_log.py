@@ -1,4 +1,6 @@
-from sqlalchemy import desc, select
+from collections import Counter
+
+from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session
 
 from app.models.audit_log import AuditLog
@@ -23,3 +25,28 @@ class AuditLogRepository:
             .offset(offset)
         )
         return list(self.db.scalars(stmt))
+
+    def count_for_user(self, user_id: int) -> int:
+        stmt = select(func.count()).select_from(AuditLog).where(AuditLog.actor_user_id == user_id)
+        return int(self.db.scalar(stmt) or 0)
+
+    def counts_by_action_for_user(self, user_id: int) -> dict[str, int]:
+        stmt = (
+            select(AuditLog.action, func.count())
+            .where(AuditLog.actor_user_id == user_id)
+            .group_by(AuditLog.action)
+        )
+        return {action: int(count) for action, count in self.db.execute(stmt).all()}
+
+    def counts_by_severity_for_user(self, user_id: int) -> dict[str, int]:
+        stmt = (
+            select(AuditLog.severity, func.count())
+            .where(AuditLog.actor_user_id == user_id)
+            .group_by(AuditLog.severity)
+        )
+        return {severity: int(count) for severity, count in self.db.execute(stmt).all()}
+
+    def delete_older_than(self, *, days: int) -> int:
+        cutoff = func.datetime("now", f"-{days} days")
+        deleted = self.db.query(AuditLog).filter(AuditLog.created_at < cutoff).delete(synchronize_session=False)
+        return int(deleted)

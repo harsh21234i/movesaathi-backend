@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db
 from app.models.user import User
-from app.schemas.audit_log import AuditLogListResponse
+from app.schemas.audit_log import AuditLogListResponse, AuditLogSummaryResponse
 from app.services.audit_log import AuditLogService
 
 router = APIRouter()
@@ -17,3 +17,11 @@ def list_my_audit_logs(
     current_user: User = Depends(get_current_user),
 ) -> AuditLogListResponse:
     return AuditLogService(db).list_my_audit_logs(current_user, limit=limit, offset=offset)
+
+
+@router.get("/me/summary", response_model=AuditLogSummaryResponse)
+def audit_summary(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> AuditLogSummaryResponse:
+    return AuditLogService(db).summarize_my_audit_logs(current_user)
