@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, PlainTextResponse
 
 from app.api.v1.router import api_router
 from app.core.config import settings
@@ -14,6 +14,7 @@ from app.core.exceptions import (
 )
 from app.core.headers import add_security_headers
 from app.core.logging import configure_logging, log_requests
+from app.core.metrics import metrics
 from app.db.session import initialize_database
 from app.services.job_queue import job_queue
 from app.services.health import build_readiness_payload
@@ -79,6 +80,10 @@ def create_app() -> FastAPI:
             status_code=status.HTTP_200_OK if healthy else status.HTTP_503_SERVICE_UNAVAILABLE,
             content=payload,
         )
+
+    @app.get("/metrics", tags=["health"], include_in_schema=False)
+    def metrics_endpoint() -> PlainTextResponse:
+        return PlainTextResponse(metrics.render_prometheus(), media_type="text/plain; version=0.0.4")
 
     return app
 

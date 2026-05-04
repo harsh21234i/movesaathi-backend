@@ -9,6 +9,8 @@ from datetime import datetime, timezone
 
 from fastapi import Request
 
+from app.core.metrics import metrics
+
 
 class JsonFormatter(logging.Formatter):
     def format(self, record: logging.LogRecord) -> str:
@@ -25,6 +27,11 @@ class JsonFormatter(logging.Formatter):
         if record.exc_info:
             payload["exception"] = self.formatException(record.exc_info)
         return json.dumps(payload, default=str)
+
+
+def _request_path(request: Request) -> str:
+    route = request.scope.get("route")
+    return getattr(route, "path", request.url.path)
 
 
 def configure_logging() -> None:
@@ -46,6 +53,7 @@ async def log_requests(request: Request, call_next):
         response = await call_next(request)
     except Exception:
         duration_ms = round((time.perf_counter() - start) * 1000, 2)
+        metrics.record_request(method=request.method, path=request.url.path, status_code=500, duration_ms=duration_ms)
         logger.exception(
             "request_id=%s method=%s path=%s status_code=%s duration_ms=%s",
             request_id,
@@ -65,6 +73,12 @@ async def log_requests(request: Request, call_next):
 
     duration_ms = round((time.perf_counter() - start) * 1000, 2)
     response.headers["x-request-id"] = request_id
+    metrics.record_request(
+        method=request.method,
+        path=_request_path(request),
+        status_code=response.status_code,
+        duration_ms=duration_ms,
+    )
 
     logger.info(
         "request_id=%s method=%s path=%s status_code=%s duration_ms=%s",
