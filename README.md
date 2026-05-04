@@ -72,6 +72,32 @@ Deployment rules:
 - keep `SECRET_KEY`, `DATABASE_URL`, and `REDIS_URL` explicitly configured
 - use `/health/live` for liveness and `/health/ready` for dependency readiness
 
+## Backup And Restore
+
+For PostgreSQL, take a logical backup before running a migration or release:
+
+```powershell
+pg_dump -h <db-host> -U <db-user> -d moovesaathi -Fc -f moovesaathi.backup
+```
+
+Restore that backup if a deployment must be rolled back and the database
+schema changed incompatibly:
+
+```powershell
+pg_restore -h <db-host> -U <db-user> -d moovesaathi --clean --if-exists moovesaathi.backup
+```
+
+Operational order for a risky deployment:
+
+1. take a backup
+2. run `alembic upgrade head`
+3. start the new application version
+4. verify `/health/ready`
+5. if the deployment fails, stop the app and restore the backup before retrying
+
+If you use containerized Postgres, backup/restore should run against the
+database service directly instead of the API container.
+
 ## Testing
 
 ```powershell
