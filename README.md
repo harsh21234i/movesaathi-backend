@@ -98,6 +98,31 @@ Operational order for a risky deployment:
 If you use containerized Postgres, backup/restore should run against the
 database service directly instead of the API container.
 
+## CI/CD Checklist
+
+Current GitHub Actions flow:
+
+1. install dependencies
+2. validate imports with `python -m compileall app tests`
+3. run `alembic upgrade head`
+4. run the test suite
+
+Release checklist:
+
+- merge only after CI is green
+- deploy database migrations before the new app version
+- verify `/health/ready` after deployment
+- monitor request logs, errors, and job retries
+- keep a rollback window until the deployment is proven stable
+
+Rollback checklist:
+
+- stop the new release
+- restore the previous app version
+- restore the database backup if needed
+- verify `/health/ready`
+- re-run the test suite against the restored branch or environment if possible
+
 ## Testing
 
 ```powershell
