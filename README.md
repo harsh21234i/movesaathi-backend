@@ -4,25 +4,55 @@ FastAPI backend for MooveSaathi, a role-based ride-sharing platform with rides, 
 
 [![Backend CI](https://github.com/harsh21234i/movesaathi-backend/actions/workflows/backend-ci.yml/badge.svg)](https://github.com/harsh21234i/movesaathi-backend/actions/workflows/backend-ci.yml)
 
-The backend follows a modular monolith structure:
+## What This Project Does
+
+MooveSaathi lets:
+
+- `driver` accounts publish and manage rides
+- `passenger` accounts discover rides and book seats
+- both sides coordinate through booking-scoped chat
+- the system track notifications, audits, and operational health
+
+## Architecture
+
+The backend is organized as a modular monolith:
 
 - `app/api`: HTTP routes and dependency wiring
-- `app/services`: business logic
+- `app/services`: business logic and workflow rules
 - `app/repositories`: database access
-- `app/models`: SQLAlchemy models
-- `app/schemas`: request/response validation
-- `app/websocket`: real-time chat connection management
+- `app/models`: SQLAlchemy tables and enums
+- `app/schemas`: request and response validation
+- `app/websocket`: realtime chat connection management
+- `app/core`: config, security, logging, metrics, and errors
+- `app/db`: database session and metadata wiring
 
-## Highlights
+## Core Features
 
 - Role-based auth for `driver` and `passenger`
-- Ride publishing, browsing, booking, and lifecycle management
+- JWT access/refresh tokens with logout and session tracking
+- Ride publishing, browsing, detail, update, cancel, and complete flows
+- Booking creation, approval, rejection, cancellation, and completion flows
 - Booking-scoped realtime chat with Redis-backed fanout
-- Notifications, audit trails, and support lookup tooling
+- Notifications with unread counts and filtering
+- Audit logs for sensitive actions
+- Support lookup endpoints with audit summaries
 - Metrics, request IDs, structured errors, and health checks
-- SQLite-safe test and migration coverage for CI
 
-## Stack
+## API Surface
+
+Main API groups:
+
+- `/api/v1/auth`
+- `/api/v1/users`
+- `/api/v1/rides`
+- `/api/v1/bookings`
+- `/api/v1/chat`
+- `/api/v1/notifications`
+- `/api/v1/reviews`
+- `/api/v1/audit`
+- `/api/v1/support`
+
+## Tech Stack
 
 - FastAPI
 - SQLAlchemy 2.0
@@ -33,7 +63,7 @@ The backend follows a modular monolith structure:
 - WebSockets
 - Pytest
 
-## Local Setup
+## Quick Start
 
 ```powershell
 python -m venv .venv
@@ -49,6 +79,29 @@ uvicorn app.main:app --reload
 ```powershell
 docker compose up --build
 ```
+
+## Health Checks
+
+- `GET /health`
+- `GET /health/live`
+- `GET /health/ready`
+- `GET /metrics`
+
+## Development Notes
+
+- `ci.db` is used in CI and local migration smoke tests
+- the test suite is SQLite-backed for fast validation
+- production config requires explicit secrets and external service URLs
+
+## Status
+
+This backend is actively evolving toward production readiness with:
+
+- observability
+- auditability
+- support tooling
+- chat resilience
+- deployment hardening
 
 The API container runs `alembic upgrade head` before starting the app.
 
