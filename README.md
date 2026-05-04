@@ -41,6 +41,37 @@ docker compose up --build
 
 The API container runs `alembic upgrade head` before starting the app.
 
+## Production Deployment
+
+Recommended order in production:
+
+1. run a database backup
+2. apply migrations with Alembic
+3. verify `/health/ready`
+4. start the API
+5. monitor logs and error rate
+
+Example:
+
+```powershell
+alembic upgrade head
+uvicorn app.main:app --host 0.0.0.0 --port 8000
+```
+
+If a deployment must be rolled back:
+
+1. stop the new API release
+2. restore the previous application version
+3. restore the database backup if the migration was not backward compatible
+4. re-run readiness checks
+
+Deployment rules:
+
+- never enable `AUTO_CREATE_TABLES` in production
+- never rely on SQLite in production
+- keep `SECRET_KEY`, `DATABASE_URL`, and `REDIS_URL` explicitly configured
+- use `/health/live` for liveness and `/health/ready` for dependency readiness
+
 ## Testing
 
 ```powershell
@@ -115,3 +146,4 @@ Still recommended before real multi-instance scale:
 - move chat connection state to a fully distributed design
 - add metrics, tracing, and centralized error reporting
 - add CI/CD pipelines and staged deploys
+- document backup/restore and rollback procedures in ops runbooks
