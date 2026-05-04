@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from app.models.audit_log import AuditLog
 from app.models.user import User
 from app.repositories.audit_log import AuditLogRepository
-from app.schemas.audit_log import AuditLogListResponse, AuditLogSummaryResponse
+from app.schemas.audit_log import AuditCleanupResponse, AuditLogListResponse, AuditLogSummaryResponse
 
 
 class AuditLogService:
@@ -68,3 +68,16 @@ class AuditLogService:
         deleted = self.logs.delete_older_than(days=days)
         self.logs.db.commit()
         return deleted
+
+    def cleanup_my_audit_logs(self, current_user: User, *, keep_days: int = 365) -> AuditCleanupResponse:
+        if keep_days < 1:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="keep_days must be greater than zero")
+        cutoff = datetime.now(timezone.utc) - timedelta(days=keep_days)
+        deleted = (
+            self.logs.db.query(AuditLog)
+            .filter(AuditLog.actor_user_id == current_user.id)
+            .filter(AuditLog.created_at < cutoff)
+            .delete(synchronize_session=False)
+        )
+        self.logs.db.commit()
+        return AuditCleanupResponse(deleted=int(deleted))

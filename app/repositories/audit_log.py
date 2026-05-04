@@ -1,5 +1,3 @@
-from collections import Counter
-
 from sqlalchemy import desc, func, select
 from sqlalchemy.orm import Session
 
@@ -47,6 +45,9 @@ class AuditLogRepository:
         return {severity: int(count) for severity, count in self.db.execute(stmt).all()}
 
     def delete_older_than(self, *, days: int) -> int:
-        cutoff = func.datetime("now", f"-{days} days")
-        deleted = self.db.query(AuditLog).filter(AuditLog.created_at < cutoff).delete(synchronize_session=False)
+        deleted = (
+            self.db.query(AuditLog)
+            .filter(AuditLog.created_at < func.datetime("now", f"-{days} days"))
+            .delete(synchronize_session=False)
+        )
         return int(deleted)

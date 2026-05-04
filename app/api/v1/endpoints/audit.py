@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db
 from app.models.user import User
-from app.schemas.audit_log import AuditLogListResponse, AuditLogSummaryResponse
+from app.schemas.audit_log import AuditCleanupResponse, AuditLogListResponse, AuditLogSummaryResponse
 from app.services.audit_log import AuditLogService
 
 router = APIRouter()
@@ -25,3 +25,12 @@ def audit_summary(
     current_user: User = Depends(get_current_user),
 ) -> AuditLogSummaryResponse:
     return AuditLogService(db).summarize_my_audit_logs(current_user)
+
+
+@router.delete("/me/cleanup", response_model=AuditCleanupResponse)
+def cleanup_my_audit_logs(
+    keep_days: int = Query(default=365, ge=1, le=3650),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> AuditCleanupResponse:
+    return AuditLogService(db).cleanup_my_audit_logs(current_user, keep_days=keep_days)

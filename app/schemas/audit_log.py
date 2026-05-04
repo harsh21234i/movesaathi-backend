@@ -26,3 +26,7 @@ class AuditLogSummaryResponse(BaseModel):
     by_action: dict[str, int]
     by_severity: dict[str, int]
     recent_items: list[AuditLogResponse]
+
+
+class AuditCleanupResponse(BaseModel):
+    deleted: int

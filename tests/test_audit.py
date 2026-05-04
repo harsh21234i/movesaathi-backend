@@ -1,3 +1,7 @@
+from datetime import datetime, timedelta, timezone
+
+from app.models.audit_log import AuditLog
+from app.models.user import User
 from app.services.audit_log import AuditLogService
 
 
@@ -72,3 +76,34 @@ def test_audit_summary_groups_activity(client) -> None:
     assert body["by_action"]["user_logged_in"] >= 1
     assert body["by_severity"]["info"] >= 1
     assert body["recent_items"]
+
+
+def test_audit_cleanup_removes_old_records_only_for_current_user(client, db_session) -> None:
+    client.post(
+        "/api/v1/auth/register",
+        json={
+            "full_name": "Cleanup User",
+            "email": "cleanup-user@example.com",
+            "password": "Password123",
+            "phone_number": "1111111111",
+            "role": "driver",
+        },
+    )
+    login = client.post("/api/v1/auth/login", json={"email": "cleanup-user@example.com", "password": "Password123"})
+    headers = {"Authorization": f"Bearer {login.json()['access_token']}"}
+
+    user = db_session.query(User).filter(User.email == "cleanup-user@example.com").one()
+    db_session.add(
+        AuditLog(
+            actor_user_id=user.id,
+            action="old_action",
+            severity="info",
+            created_at=datetime.now(timezone.utc) - timedelta(days=400),
+        )
+    )
+    db_session.commit()
+
+    response = client.delete("/api/v1/audit/me/cleanup?keep_days=365", headers=headers)
+
+    assert response.status_code == 200
+    assert response.json()["deleted"] == 1
