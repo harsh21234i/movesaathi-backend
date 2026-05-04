@@ -1,4 +1,5 @@
 from collections import defaultdict
+from asyncio import Lock
 
 from fastapi import WebSocket
 from starlette.websockets import WebSocketState
@@ -7,12 +8,16 @@ from starlette.websockets import WebSocketState
 class ConnectionManager:
     def __init__(self) -> None:
         self.active_connections: dict[int, set[WebSocket]] = defaultdict(set)
+        self._lock = Lock()
 
     async def connect(self, booking_id: int, websocket: WebSocket) -> None:
         await websocket.accept()
-        self.active_connections[booking_id].add(websocket)
+        async with self._lock:
+            self.active_connections[booking_id].add(websocket)
 
     def disconnect(self, booking_id: int, websocket: WebSocket) -> None:
+        # The disconnect path is called from sync shutdown handlers, so keep it
+        # lightweight and tolerate race conditions from already-removed sockets.
         if booking_id in self.active_connections and websocket in self.active_connections[booking_id]:
             self.active_connections[booking_id].discard(websocket)
             if not self.active_connections[booking_id]:
@@ -20,7 +25,10 @@ class ConnectionManager:
 
     async def broadcast(self, booking_id: int, message: str) -> None:
         stale_connections: list[WebSocket] = []
-        for connection in list(self.active_connections.get(booking_id, set())):
+        async with self._lock:
+            connections = list(self.active_connections.get(booking_id, set()))
+
+        for connection in connections:
             if connection.client_state != WebSocketState.CONNECTED:
                 stale_connections.append(connection)
                 continue
