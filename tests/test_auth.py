@@ -4,7 +4,9 @@ def test_health_check(client) -> None:
     body = response.json()
     assert body["status"] == "ok"
     assert body["service"] == "MooveSaathi"
-    assert body["environment"] == "development"
+    from app.core.config import settings
+
+    assert body["environment"] == settings.APP_ENV
     assert body["request_id"]
 
 
@@ -125,6 +127,50 @@ def test_refresh_rotates_tokens_and_logout_revokes_access(client) -> None:
 
     reused_refresh = client.post("/api/v1/auth/refresh", json={"refresh_token": rotated_refresh})
     assert reused_refresh.status_code == 401
+
+
+def test_change_password_revokes_existing_sessions(client) -> None:
+    register_response = client.post(
+        "/api/v1/auth/register",
+        json={
+            "full_name": "Password Change User",
+            "email": "change@example.com",
+            "password": "Password123",
+            "phone_number": "5555555555",
+        },
+    )
+    assert register_response.status_code == 201
+
+    login_response = client.post(
+        "/api/v1/auth/login",
+        json={"email": "change@example.com", "password": "Password123"},
+    )
+    assert login_response.status_code == 200
+    access_token = login_response.json()["access_token"]
+    refresh_token = login_response.json()["refresh_token"]
+
+    sessions_response = client.get("/api/v1/auth/sessions", headers={"Authorization": f"Bearer {access_token}"})
+    assert sessions_response.status_code == 200
+    assert len(sessions_response.json()["items"]) == 1
+
+    change_response = client.post(
+        "/api/v1/auth/change-password",
+        headers={"Authorization": f"Bearer {access_token}"},
+        json={"current_password": "Password123", "new_password": "NewPassword123"},
+    )
+    assert change_response.status_code == 204
+
+    me_response = client.get("/api/v1/users/me", headers={"Authorization": f"Bearer {access_token}"})
+    assert me_response.status_code == 401
+
+    reused_refresh = client.post("/api/v1/auth/refresh", json={"refresh_token": refresh_token})
+    assert reused_refresh.status_code == 401
+
+    new_login = client.post(
+        "/api/v1/auth/login",
+        json={"email": "change@example.com", "password": "NewPassword123"},
+    )
+    assert new_login.status_code == 200
 
 
 def test_forgot_password_and_reset_password_flow(client) -> None:
@@ -262,6 +308,39 @@ def test_login_rate_limit(client, rate_limit_settings) -> None:
         json={"email": "ratelimit@example.com", "password": "wrongpass"},
     )
     assert blocked.status_code == 429
+
+
+def test_login_lockout_after_repeated_failures(client, monkeypatch) -> None:
+    monkeypatch.setattr("app.services.auth.settings.AUTH_MAX_FAILED_LOGIN_ATTEMPTS", 2)
+    monkeypatch.setattr("app.services.auth.settings.AUTH_LOCKOUT_WINDOW_MINUTES", 15)
+
+    assert client.post(
+        "/api/v1/auth/register",
+        json={
+            "full_name": "Lockout User",
+            "email": "lockout@example.com",
+            "password": "Password123",
+            "phone_number": "1231231234",
+        },
+    ).status_code == 201
+
+    assert client.post(
+        "/api/v1/auth/login",
+        json={"email": "lockout@example.com", "password": "wrongpass"},
+    ).status_code == 401
+
+    blocked = client.post(
+        "/api/v1/auth/login",
+        json={"email": "lockout@example.com", "password": "wrongpass"},
+    )
+    assert blocked.status_code == 401
+
+    locked = client.post(
+        "/api/v1/auth/login",
+        json={"email": "lockout@example.com", "password": "Password123"},
+    )
+    assert locked.status_code == 423
+    assert locked.json()["detail"] == "Account temporarily locked due to too many failed login attempts"
 
 
 def test_forgot_password_rate_limit(client, rate_limit_settings) -> None:

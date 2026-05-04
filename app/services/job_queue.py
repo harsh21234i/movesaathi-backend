@@ -4,6 +4,7 @@ import logging
 import queue
 import threading
 import time
+import uuid
 from collections.abc import Callable
 from dataclasses import dataclass, field
 
@@ -14,6 +15,7 @@ from app.core.config import settings
 class Job:
     name: str
     handler: Callable[[], None]
+    job_id: str = field(default_factory=lambda: str(uuid.uuid4()))
     attempts: int = 0
     max_retries: int = field(default_factory=lambda: settings.JOB_WORKER_MAX_RETRIES)
 
@@ -67,11 +69,16 @@ class JobQueue:
             job.attempts += 1
             if job.attempts <= job.max_retries:
                 delay = settings.JOB_WORKER_RETRY_DELAY_SECONDS * job.attempts
-                self.logger.exception("Job %s failed; retrying in %ss", job.name, delay)
+                self.logger.exception(
+                    "Job %s failed; retrying in %ss",
+                    job.name,
+                    delay,
+                    extra={"job_id": job.job_id},
+                )
                 time.sleep(delay)
                 self.enqueue(job)
                 return
-            self.logger.exception("Job %s failed after retries", job.name)
+            self.logger.exception("Job %s failed after retries", job.name, extra={"job_id": job.job_id})
 
 
 job_queue = JobQueue()

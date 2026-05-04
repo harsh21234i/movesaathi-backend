@@ -6,6 +6,7 @@ from app.api.deps import oauth2_scheme
 from app.core.config import settings
 from app.core.rate_limit import rate_limit_dependency
 from app.schemas.auth import (
+    ChangePasswordRequest,
     ForgotPasswordRequest,
     ForgotPasswordResponse,
     LoginRequest,
@@ -13,6 +14,7 @@ from app.schemas.auth import (
     RegisterResponse,
     RefreshRequest,
     RegisterRequest,
+    SessionListResponse,
     ResendVerificationRequest,
     ResendVerificationResponse,
     ResetPasswordRequest,
@@ -113,6 +115,19 @@ def reset_password(
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
+@router.post("/change-password", status_code=status.HTTP_204_NO_CONTENT)
+def change_password(
+    payload: ChangePasswordRequest,
+    db: Session = Depends(get_db),
+    access_token: str = Depends(oauth2_scheme),
+) -> Response:
+    from app.api.deps import get_current_user
+
+    current_user = get_current_user(db=db, token=access_token)
+    AuthService(db).change_password(payload, current_user=current_user, access_token=access_token)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
 @router.post("/refresh", response_model=TokenResponse)
 def refresh_tokens(payload: RefreshRequest, db: Session = Depends(get_db)) -> TokenResponse:
     return AuthService(db).refresh(payload)
@@ -125,4 +140,28 @@ def logout(
     access_token: str = Depends(oauth2_scheme),
 ) -> Response:
     AuthService(db).logout(access_token=access_token, refresh_token=payload.refresh_token)
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/sessions", response_model=SessionListResponse)
+def list_sessions(
+    db: Session = Depends(get_db),
+    access_token: str = Depends(oauth2_scheme),
+) -> SessionListResponse:
+    from app.api.deps import get_current_user
+
+    current_user = get_current_user(db=db, token=access_token)
+    return AuthService(db).list_sessions(current_user)
+
+
+@router.delete("/sessions/{session_jti}", status_code=status.HTTP_204_NO_CONTENT)
+def revoke_session(
+    session_jti: str,
+    db: Session = Depends(get_db),
+    access_token: str = Depends(oauth2_scheme),
+) -> Response:
+    from app.api.deps import get_current_user
+
+    current_user = get_current_user(db=db, token=access_token)
+    AuthService(db).revoke_session(current_user, session_jti)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

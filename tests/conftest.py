@@ -55,9 +55,13 @@ def setup_database(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, Non
     token_store._in_memory_tokens.clear()
     idempotency_store.reset()
     rate_limiter.reset()
+    token_store._in_memory_sessions.clear()
+    token_store._in_memory_user_sessions.clear()
     yield
     Base.metadata.drop_all(bind=engine)
     token_store._in_memory_tokens.clear()
+    token_store._in_memory_sessions.clear()
+    token_store._in_memory_user_sessions.clear()
     idempotency_store.reset()
     rate_limiter.reset()
 

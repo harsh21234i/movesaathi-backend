@@ -39,6 +39,16 @@ class LogoutRequest(BaseModel):
     refresh_token: str | None = None
 
 
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str = Field(min_length=8, max_length=128)
+
+    @field_validator("new_password")
+    @classmethod
+    def validate_password_strength(cls, value: str) -> str:
+        return validate_password_strength_value(value)
+
+
 class ForgotPasswordRequest(BaseModel):
     email: EmailStr
 
@@ -66,6 +76,16 @@ class TokenResponse(BaseModel):
     access_token: str
     refresh_token: str
     token_type: str = "bearer"
+
+
+class SessionResponse(BaseModel):
+    jti: str
+    issued_at: str
+    expires_at: str
+
+
+class SessionListResponse(BaseModel):
+    items: list[SessionResponse]
 
 
 class ResendVerificationRequest(BaseModel):

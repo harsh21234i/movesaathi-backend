@@ -16,6 +16,8 @@ class UserResponse(BaseModel):
     rating: float
     email_verified: bool
     email_verified_at: datetime | None
+    failed_login_attempts: int
+    locked_until: datetime | None
     created_at: datetime
 
 
