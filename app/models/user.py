@@ -25,6 +25,8 @@ class User(Base):
     rating: Mapped[float] = mapped_column(Float, default=5.0)
     email_verified: Mapped[bool] = mapped_column(Boolean, default=False)
     email_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    failed_login_attempts: Mapped[int] = mapped_column(Integer, default=0)
+    locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     rides = relationship("Ride", back_populates="driver", cascade="all, delete-orphan")
