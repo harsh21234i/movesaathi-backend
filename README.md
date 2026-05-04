@@ -41,6 +41,88 @@ docker compose up --build
 
 The API container runs `alembic upgrade head` before starting the app.
 
+## Production Deployment
+
+Recommended order in production:
+
+1. run a database backup
+2. apply migrations with Alembic
+3. verify `/health/ready`
+4. start the API
+5. monitor logs and error rate
+
+Example:
+
+```powershell
+alembic upgrade head
+uvicorn app.main:app --host 0.0.0.0 --port 8000
+```
+
+If a deployment must be rolled back:
+
+1. stop the new API release
+2. restore the previous application version
+3. restore the database backup if the migration was not backward compatible
+4. re-run readiness checks
+
+Deployment rules:
+
+- never enable `AUTO_CREATE_TABLES` in production
+- never rely on SQLite in production
+- keep `SECRET_KEY`, `DATABASE_URL`, and `REDIS_URL` explicitly configured
+- use `/health/live` for liveness and `/health/ready` for dependency readiness
+
+## Backup And Restore
+
+For PostgreSQL, take a logical backup before running a migration or release:
+
+```powershell
+pg_dump -h <db-host> -U <db-user> -d moovesaathi -Fc -f moovesaathi.backup
+```
+
+Restore that backup if a deployment must be rolled back and the database
+schema changed incompatibly:
+
+```powershell
+pg_restore -h <db-host> -U <db-user> -d moovesaathi --clean --if-exists moovesaathi.backup
+```
+
+Operational order for a risky deployment:
+
+1. take a backup
+2. run `alembic upgrade head`
+3. start the new application version
+4. verify `/health/ready`
+5. if the deployment fails, stop the app and restore the backup before retrying
+
+If you use containerized Postgres, backup/restore should run against the
+database service directly instead of the API container.
+
+## CI/CD Checklist
+
+Current GitHub Actions flow:
+
+1. install dependencies
+2. validate imports with `python -m compileall app tests`
+3. run `alembic upgrade head`
+4. run the test suite
+
+Release checklist:
+
+- merge only after CI is green
+- deploy database migrations before the new app version
+- verify `/health/ready` after deployment
+- monitor request logs, errors, and job retries
+- keep a rollback window until the deployment is proven stable
+
+Rollback checklist:
+
+- stop the new release
+- restore the previous app version
+- restore the database backup if needed
+- verify `/health/ready`
+- re-run the test suite against the restored branch or environment if possible
+
 ## Testing
 
 ```powershell
@@ -115,3 +197,4 @@ Still recommended before real multi-instance scale:
 - move chat connection state to a fully distributed design
 - add metrics, tracing, and centralized error reporting
 - add CI/CD pipelines and staged deploys
+- document backup/restore and rollback procedures in ops runbooks

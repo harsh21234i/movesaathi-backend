@@ -83,6 +83,15 @@ class Settings(BaseSettings):
     def validate_runtime_settings(self) -> "Settings":
         if self.is_production and "localhost" in self.BACKEND_CORS_ORIGINS:
             raise ValueError("BACKEND_CORS_ORIGINS must be explicitly configured for production")
+        if self.is_production and self.DATABASE_URL.startswith("sqlite"):
+            raise ValueError("DATABASE_URL must point to a production database")
+        if self.is_production and (
+            self.REDIS_URL.startswith("redis://redis:")
+            or self.REDIS_URL.startswith("redis://localhost")
+        ):
+            raise ValueError("REDIS_URL must point to a production Redis instance")
+        if self.is_production and self.AUTO_CREATE_TABLES:
+            raise ValueError("AUTO_CREATE_TABLES must be disabled in production")
         if self.EMAILS_ENABLED and not self.SMTP_HOST:
             raise ValueError("SMTP_HOST must be configured when EMAILS_ENABLED is true")
         if self.EMAILS_ENABLED and self.SMTP_USE_TLS and self.SMTP_USE_SSL:
