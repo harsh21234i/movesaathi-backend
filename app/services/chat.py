@@ -4,9 +4,11 @@ from datetime import datetime, timezone
 
 from fastapi import HTTPException, status
 from redis import Redis
+from redis.exceptions import RedisError
 from sqlalchemy.orm import Session
 
 from app.core.config import settings
+from app.core.metrics import metrics
 from app.models.message import Message
 from app.models.user import User
 from app.repositories.booking import BookingRepository
@@ -18,19 +20,39 @@ class ChatService:
     def __init__(self, db: Session) -> None:
         self.messages = MessageRepository(db)
         self.bookings = BookingRepository(db)
-        self.redis = Redis.from_url(
+        self.redis = self._create_redis_client()
+        self.logger = logging.getLogger(__name__)
+
+    def _create_redis_client(self) -> Redis:
+        return Redis.from_url(
             settings.REDIS_URL,
             decode_responses=True,
             socket_connect_timeout=settings.REDIS_SOCKET_CONNECT_TIMEOUT,
             socket_timeout=settings.REDIS_SOCKET_TIMEOUT,
         )
-        self.logger = logging.getLogger(__name__)
 
     def _publish(self, booking_id: int, payload: dict[str, object]) -> None:
-        try:
-            self.redis.publish(f"chat:{booking_id}", json.dumps(payload))
-        except Exception:
-            self.logger.exception("Failed to publish chat event for booking_id=%s", booking_id)
+        message = json.dumps(payload)
+        for attempt in range(2):
+            try:
+                self.redis.publish(f"chat:{booking_id}", message)
+                metrics.record_job(name="chat_publish", status="success")
+                return
+            except RedisError:
+                metrics.record_job(name="chat_publish", status="retry" if attempt == 0 else "failed")
+                self.logger.exception("Failed to publish chat event for booking_id=%s", booking_id)
+                if attempt == 0:
+                    try:
+                        self.redis.close()
+                    except Exception:
+                        pass
+                    self.redis = self._create_redis_client()
+                    continue
+                break
+            except Exception:
+                metrics.record_job(name="chat_publish", status="failed")
+                self.logger.exception("Failed to publish chat event for booking_id=%s", booking_id)
+                break
 
     def ensure_booking_access(self, booking_id: int, current_user: User) -> None:
         booking = self.bookings.get_by_id(booking_id)

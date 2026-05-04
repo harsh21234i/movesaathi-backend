@@ -57,6 +57,8 @@ class Settings(BaseSettings):
     FRONTEND_URL: str = "http://localhost:5173"
     AUTO_CREATE_TABLES: bool = True
     SQL_ECHO: bool = False
+    ERROR_REPORTING_ENABLED: bool = False
+    ERROR_REPORTING_DSN: str | None = None
     BACKEND_CORS_ORIGINS: list[AnyHttpUrl | str] = ["http://localhost:5173"]
 
     @property
@@ -96,6 +98,8 @@ class Settings(BaseSettings):
             raise ValueError("SMTP_HOST must be configured when EMAILS_ENABLED is true")
         if self.EMAILS_ENABLED and self.SMTP_USE_TLS and self.SMTP_USE_SSL:
             raise ValueError("SMTP_USE_TLS and SMTP_USE_SSL cannot both be enabled")
+        if self.ERROR_REPORTING_ENABLED and not self.ERROR_REPORTING_DSN:
+            raise ValueError("ERROR_REPORTING_DSN must be configured when error reporting is enabled")
         return self
 
 

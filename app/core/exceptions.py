@@ -5,6 +5,9 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 
+from app.core.metrics import metrics
+from app.core.reporting import report_exception
+
 
 def _request_id(request: Request) -> str | None:
     return getattr(request.state, "request_id", None)
@@ -24,6 +27,7 @@ def _error_code_for_status(status_code: int) -> str:
 
 
 async def http_exception_handler(request: Request, exc: HTTPException) -> JSONResponse:
+    metrics.record_exception(code=_error_code_for_status(exc.status_code))
     content = {
         "detail": exc.detail,
         "code": _error_code_for_status(exc.status_code),
@@ -33,6 +37,7 @@ async def http_exception_handler(request: Request, exc: HTTPException) -> JSONRe
 
 
 async def validation_exception_handler(request: Request, exc: RequestValidationError) -> JSONResponse:
+    metrics.record_exception(code="validation_error")
     content = {
         "detail": "Request validation failed",
         "code": "validation_error",
@@ -43,6 +48,8 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 
 
 async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
+    metrics.record_exception(code="internal_server_error")
+    report_exception(request, exc)
     logging.getLogger("app.error").exception("Unhandled exception request_id=%s", _request_id(request), exc_info=exc)
     content = {
         "detail": "Internal server error",
