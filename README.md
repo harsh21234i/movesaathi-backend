@@ -1,6 +1,8 @@
 # MooveSaathi Backend
 
-FastAPI backend for the MooveSaathi ride-sharing platform.
+FastAPI backend for MooveSaathi, a role-based ride-sharing platform with rides, bookings, chat, notifications, audit logs, support tooling, and production-grade observability.
+
+[![Backend CI](https://github.com/harsh21234i/movesaathi-backend/actions/workflows/backend-ci.yml/badge.svg)](https://github.com/harsh21234i/movesaathi-backend/actions/workflows/backend-ci.yml)
 
 The backend follows a modular monolith structure:
 
@@ -10,6 +12,15 @@ The backend follows a modular monolith structure:
 - `app/models`: SQLAlchemy models
 - `app/schemas`: request/response validation
 - `app/websocket`: real-time chat connection management
+
+## Highlights
+
+- Role-based auth for `driver` and `passenger`
+- Ride publishing, browsing, booking, and lifecycle management
+- Booking-scoped realtime chat with Redis-backed fanout
+- Notifications, audit trails, and support lookup tooling
+- Metrics, request IDs, structured errors, and health checks
+- SQLite-safe test and migration coverage for CI
 
 ## Stack
 
