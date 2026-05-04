@@ -59,6 +59,8 @@ class Settings(BaseSettings):
     SQL_ECHO: bool = False
     ERROR_REPORTING_ENABLED: bool = False
     ERROR_REPORTING_DSN: str | None = None
+    SUPPORT_API_ENABLED: bool = False
+    SUPPORT_API_KEY: str | None = None
     BACKEND_CORS_ORIGINS: list[AnyHttpUrl | str] = ["http://localhost:5173"]
 
     @property
@@ -100,6 +102,8 @@ class Settings(BaseSettings):
             raise ValueError("SMTP_USE_TLS and SMTP_USE_SSL cannot both be enabled")
         if self.ERROR_REPORTING_ENABLED and not self.ERROR_REPORTING_DSN:
             raise ValueError("ERROR_REPORTING_DSN must be configured when error reporting is enabled")
+        if self.SUPPORT_API_ENABLED and not self.SUPPORT_API_KEY:
+            raise ValueError("SUPPORT_API_KEY must be configured when support API is enabled")
         return self
 
 
