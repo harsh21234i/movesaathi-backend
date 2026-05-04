@@ -1,0 +1,22 @@
+labels:
+  - name: backend
+    color: 1D76DB
+    description: Backend-specific work
+  - name: frontend
+    color: FBCA04
+    description: Frontend-specific work
+  - name: security
+    color: D73A4A
+    description: Security-related work
+  - name: audit
+    color: 5319E7
+    description: Audit and compliance work
+  - name: payments
+    color: 0E8A16
+    description: Payments and billing work
+  - name: location
+    color: 0052CC
+    description: Maps, geo, and tracking work
+  - name: needs-triage
+    color: D4C5F9
+    description: Needs manual classification
