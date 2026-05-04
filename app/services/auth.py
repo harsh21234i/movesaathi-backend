@@ -36,6 +36,7 @@ from app.schemas.auth import (
     VerifyEmailRequest,
 )
 from app.services.email import EmailService
+from app.services.audit_log import AuditLogService
 from app.services.job_queue import Job, job_queue
 from app.services.token_store import token_store
 
@@ -44,6 +45,7 @@ class AuthService:
     def __init__(self, db: Session) -> None:
         self.users = UserRepository(db)
         self.email_service = EmailService()
+        self.audit_logs = AuditLogService(db)
         self.logger = logging.getLogger(__name__)
 
     def register(self, payload: RegisterRequest) -> RegisterResponse:
@@ -60,6 +62,13 @@ class AuthService:
             )
             saved_user = self.users.create(user)
             self.users.db.commit()
+            self.audit_logs.record(
+                action="user_registered",
+                actor_user_id=saved_user.id,
+                entity_type="user",
+                entity_id=str(saved_user.id),
+                metadata={"role": saved_user.role.value, "email_verified": saved_user.email_verified},
+            )
         except Exception:
             self.users.db.rollback()
             raise
@@ -88,6 +97,12 @@ class AuthService:
             )
 
         self._clear_failed_logins(user)
+        self.audit_logs.record(
+            action="user_logged_in",
+            actor_user_id=user.id,
+            entity_type="session",
+            metadata={"email": user.email},
+        )
         return self._issue_token_pair(str(user.id))
 
     def refresh(self, payload: RefreshRequest) -> TokenResponse:
@@ -102,6 +117,12 @@ class AuthService:
         if refresh_token:
             refresh_payload = self._decode_expected_token(refresh_token, expected_type="refresh")
             revoke_token_from_payload(refresh_payload)
+        self.audit_logs.record(
+            action="user_logged_out",
+            actor_user_id=int(access_payload["sub"]),
+            entity_type="session",
+            metadata={"refresh_revoked": bool(refresh_token)},
+        )
 
     def forgot_password(self, payload: ForgotPasswordRequest) -> ForgotPasswordResponse:
         user = self.users.get_by_email(payload.email)
@@ -147,6 +168,12 @@ class AuthService:
             user.email_verified_at = datetime.now(timezone.utc)
             self.users.save(user)
             self.users.db.commit()
+            self.audit_logs.record(
+                action="email_verified",
+                actor_user_id=user.id,
+                entity_type="user",
+                entity_id=str(user.id),
+            )
             revoke_token_from_payload(verification_payload)
         except Exception:
             self.users.db.rollback()
@@ -179,6 +206,12 @@ class AuthService:
             token_payload = self._decode_expected_token(access_token, expected_type="access")
             revoke_token_from_payload(token_payload)
             token_store.revoke_user_sessions(current_user.id)
+            self.audit_logs.record(
+                action="password_changed",
+                actor_user_id=current_user.id,
+                entity_type="user",
+                entity_id=str(current_user.id),
+            )
         except Exception:
             self.users.db.rollback()
             raise
