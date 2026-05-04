@@ -6,6 +6,7 @@ from app.models.booking import Booking, BookingStatus
 from app.models.notification import NotificationType
 from app.models.ride import RideStatus
 from app.models.user import User, UserRole
+from app.services.audit_log import AuditLogService
 from app.repositories.booking import BookingRepository
 from app.repositories.ride import RideRepository
 from app.schemas.booking import BookingCreate
@@ -18,6 +19,7 @@ class BookingService:
         self.bookings = BookingRepository(db)
         self.rides = RideRepository(db)
         self.notifications = NotificationService(db)
+        self.audit_logs = AuditLogService(db)
         self.notification_session_factory = sessionmaker(
             bind=db.get_bind(),
             autoflush=False,
@@ -57,6 +59,13 @@ class BookingService:
                 body=f"{current_user.full_name} requested a seat from {ride.origin} to {ride.destination}.",
             )
             self.bookings.db.commit()
+            self.audit_logs.record(
+                action="booking_created",
+                actor_user_id=current_user.id,
+                entity_type="booking",
+                entity_id=str(saved_booking.id),
+                metadata={"ride_id": ride.id},
+            )
             return saved_booking
         except Exception:
             self.bookings.db.rollback()
@@ -78,6 +87,13 @@ class BookingService:
 
             saved_booking = self.bookings.save(booking)
             self.bookings.db.commit()
+            self.audit_logs.record(
+                action="booking_status_updated",
+                actor_user_id=current_user.id,
+                entity_type="booking",
+                entity_id=str(saved_booking.id),
+                metadata={"status": saved_booking.status.value},
+            )
             return saved_booking
         except Exception:
             self.bookings.db.rollback()

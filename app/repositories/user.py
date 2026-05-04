@@ -15,6 +15,13 @@ class UserRepository:
         stmt = select(User).where(User.email == email)
         return self.db.scalar(stmt)
 
+    def search(self, *, email: str | None = None) -> list[User]:
+        stmt = select(User)
+        if email:
+            stmt = stmt.where(User.email.ilike(f"%{email}%"))
+        stmt = stmt.order_by(User.id.asc()).limit(50)
+        return list(self.db.scalars(stmt))
+
     def create(self, user: User) -> User:
         self.db.add(user)
         self.db.flush()

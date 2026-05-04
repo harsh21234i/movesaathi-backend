@@ -7,6 +7,7 @@ from app.models.booking import BookingStatus
 from app.models.notification import NotificationType
 from app.models.ride import RideStatus
 from app.models.user import User, UserRole
+from app.services.audit_log import AuditLogService
 from app.repositories.ride import RideRepository
 from app.schemas.ride import RideCreate, RideSearchParams, RideUpdate
 from app.services.notification_jobs import enqueue_notification
@@ -17,6 +18,7 @@ class RideService:
     def __init__(self, db: Session) -> None:
         self.rides = RideRepository(db)
         self.notifications = NotificationService(db)
+        self.audit_logs = AuditLogService(db)
         self.notification_session_factory = sessionmaker(
             bind=db.get_bind(),
             autoflush=False,
@@ -47,6 +49,13 @@ class RideService:
             )
             saved_ride = self.rides.create(ride)
             self.rides.db.commit()
+            self.audit_logs.record(
+                action="ride_created",
+                actor_user_id=current_user.id,
+                entity_type="ride",
+                entity_id=str(saved_ride.id),
+                metadata={"origin": saved_ride.origin, "destination": saved_ride.destination},
+            )
             return saved_ride
         except Exception:
             self.rides.db.rollback()
@@ -124,6 +133,12 @@ class RideService:
             ride.is_active = ride.status == RideStatus.scheduled
             saved_ride = self.rides.save(ride)
             self.rides.db.commit()
+            self.audit_logs.record(
+                action="ride_updated",
+                actor_user_id=current_user.id,
+                entity_type="ride",
+                entity_id=str(saved_ride.id),
+            )
             return saved_ride
         except Exception:
             self.rides.db.rollback()
@@ -161,6 +176,12 @@ class RideService:
                     )
             self.rides.save(ride)
             self.rides.db.commit()
+            self.audit_logs.record(
+                action="ride_cancelled",
+                actor_user_id=current_user.id,
+                entity_type="ride",
+                entity_id=str(ride.id),
+            )
         except Exception:
             self.rides.db.rollback()
             raise
@@ -197,6 +218,12 @@ class RideService:
                     )
             saved_ride = self.rides.save(ride)
             self.rides.db.commit()
+            self.audit_logs.record(
+                action="ride_completed",
+                actor_user_id=current_user.id,
+                entity_type="ride",
+                entity_id=str(saved_ride.id),
+            )
             return saved_ride
         except Exception:
             self.rides.db.rollback()
