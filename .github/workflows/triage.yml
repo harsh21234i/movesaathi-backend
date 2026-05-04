@@ -1,0 +1,39 @@
+name: Auto Triage
+
+on:
+  issues:
+    types: [opened, reopened, edited]
+  pull_request:
+    types: [opened, reopened, synchronize]
+
+permissions:
+  issues: write
+  pull-requests: write
+
+jobs:
+  label:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Label backend PRs and issues
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const labels = [];
+            const { owner, repo } = context.repo;
+            const title = (context.payload.issue?.title || context.payload.pull_request?.title || "").toLowerCase();
+            const body = (context.payload.issue?.body || context.payload.pull_request?.body || "").toLowerCase();
+            const text = `${title}\n${body}`;
+
+            if (text.includes("backend")) labels.push("backend");
+            if (text.includes("frontend")) labels.push("frontend");
+            if (text.includes("security")) labels.push("security");
+            if (text.includes("audit")) labels.push("audit");
+            if (text.includes("payment")) labels.push("payments");
+            if (text.includes("location") || text.includes("map")) labels.push("location");
+
+            if (!labels.length) {
+              labels.push("needs-triage");
+            }
+
+            const number = context.payload.issue?.number || context.payload.pull_request?.number;
+            await github.rest.issues.addLabels({ owner, repo, issue_number: number, labels });
