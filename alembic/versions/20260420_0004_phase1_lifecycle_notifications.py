@@ -61,18 +61,32 @@ def upgrade() -> None:
         "rides",
         sa.Column("status", ride_status_type, nullable=False, server_default="scheduled"),
     )
-    op.execute(
-        sa.text(
-            """
-            UPDATE rides
-            SET status = CASE
-                WHEN is_active = false THEN 'cancelled'
-                WHEN available_seats = 0 THEN 'full'
-                ELSE 'scheduled'
-            END
-            """
+    if dialect_name == "postgresql":
+        op.execute(
+            sa.text(
+                """
+                UPDATE rides
+                SET status = CASE
+                    WHEN is_active = false THEN 'cancelled'::ridestatus
+                    WHEN available_seats = 0 THEN 'full'::ridestatus
+                    ELSE 'scheduled'::ridestatus
+                END
+                """
+            )
         )
-    )
+    else:
+        op.execute(
+            sa.text(
+                """
+                UPDATE rides
+                SET status = CASE
+                    WHEN is_active = false THEN 'cancelled'
+                    WHEN available_seats = 0 THEN 'full'
+                    ELSE 'scheduled'
+                END
+                """
+            )
+        )
 
     op.create_table(
         "notifications",
