@@ -4,7 +4,9 @@ def test_health_check(client) -> None:
     body = response.json()
     assert body["status"] == "ok"
     assert body["service"] == "MooveSaathi"
-    assert body["environment"] == "development"
+    from app.core.config import settings
+
+    assert body["environment"] == settings.APP_ENV
     assert body["request_id"]
 
 

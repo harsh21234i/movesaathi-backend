@@ -1,4 +1,4 @@
-from app.main import app
+from app.core.config import settings
 
 
 def test_health_endpoint_includes_request_context(client) -> None:
@@ -9,7 +9,7 @@ def test_health_endpoint_includes_request_context(client) -> None:
     assert response.json() == {
         "status": "ok",
         "service": "MooveSaathi",
-        "environment": "development",
+        "environment": settings.APP_ENV,
         "request_id": "health-req-1",
     }
 
