@@ -32,6 +32,7 @@ from app.schemas.auth import (
     VerifyEmailRequest,
 )
 from app.services.email import EmailService
+from app.services.job_queue import Job, job_queue
 from app.services.token_store import token_store
 
 
@@ -60,7 +61,7 @@ class AuthService:
             raise
 
         verification_token = self._issue_verification_token(saved_user)
-        self._send_verification_email(saved_user, verification_token)
+        self._queue_verification_email(saved_user, verification_token)
         response = RegisterResponse.model_validate(saved_user)
         if not settings.is_production:
             response.verification_token = verification_token
@@ -115,7 +116,7 @@ class AuthService:
             return response
 
         verification_token = self._issue_verification_token(user)
-        self._send_verification_email(user, verification_token)
+        self._queue_verification_email(user, verification_token)
         if not settings.is_production:
             response.verification_token = verification_token
         return response
@@ -163,15 +164,23 @@ class AuthService:
     def _issue_verification_token(self, user: User) -> str:
         return create_email_verification_token(subject=str(user.id))
 
-    def _send_verification_email(self, user: User, verification_token: str) -> None:
-        try:
-            self.email_service.send_verification_email(
-                to_email=user.email,
-                full_name=user.full_name,
-                verification_token=verification_token,
+    def _queue_verification_email(self, user: User, verification_token: str) -> None:
+        def send_verification() -> None:
+            try:
+                self.email_service.send_verification_email(
+                    to_email=user.email,
+                    full_name=user.full_name,
+                    verification_token=verification_token,
+                )
+            except Exception:
+                self.logger.exception("Failed to send verification email to user_id=%s", user.id)
+
+        job_queue.enqueue(
+            Job(
+                name=f"send-verification-email:{user.id}",
+                handler=send_verification,
             )
-        except Exception:
-            self.logger.exception("Failed to send verification email to user_id=%s", user.id)
+        )
 
     def _decode_expected_token(self, token: str, *, expected_type: str) -> dict:
         credentials_exception = HTTPException(

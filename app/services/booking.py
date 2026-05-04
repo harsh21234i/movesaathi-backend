@@ -1,5 +1,6 @@
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
+from sqlalchemy.orm import sessionmaker
 
 from app.models.booking import Booking, BookingStatus
 from app.models.notification import NotificationType
@@ -8,6 +9,7 @@ from app.models.user import User, UserRole
 from app.repositories.booking import BookingRepository
 from app.repositories.ride import RideRepository
 from app.schemas.booking import BookingCreate
+from app.services.notification_jobs import enqueue_notification
 from app.services.notification import NotificationService
 
 
@@ -16,6 +18,13 @@ class BookingService:
         self.bookings = BookingRepository(db)
         self.rides = RideRepository(db)
         self.notifications = NotificationService(db)
+        self.notification_session_factory = sessionmaker(
+            bind=db.get_bind(),
+            autoflush=False,
+            autocommit=False,
+            expire_on_commit=False,
+            future=True,
+        )
 
     def create_booking(self, payload: BookingCreate, current_user: User) -> Booking:
         if current_user.role != UserRole.passenger:
@@ -40,7 +49,8 @@ class BookingService:
 
             booking = Booking(ride_id=payload.ride_id, passenger_id=current_user.id, notes=payload.notes)
             saved_booking = self.bookings.create(booking)
-            self.notifications.create_notification(
+            enqueue_notification(
+                session_factory=self.notification_session_factory,
                 recipient_id=ride.driver_id,
                 notification_type=NotificationType.booking_requested,
                 title="New booking request",
@@ -181,7 +191,8 @@ class BookingService:
             booking.ride.available_seats -= 1
             booking.ride.status = RideStatus.full if booking.ride.available_seats == 0 else RideStatus.scheduled
             booking.ride.is_active = booking.ride.status == RideStatus.scheduled
-            self.notifications.create_notification(
+            enqueue_notification(
+                session_factory=self.notification_session_factory,
                 recipient_id=booking.passenger_id,
                 notification_type=NotificationType.booking_accepted,
                 title="Booking accepted",
@@ -193,7 +204,8 @@ class BookingService:
             if booking.status != BookingStatus.pending:
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only pending bookings can be rejected")
             booking.status = BookingStatus.rejected
-            self.notifications.create_notification(
+            enqueue_notification(
+                session_factory=self.notification_session_factory,
                 recipient_id=booking.passenger_id,
                 notification_type=NotificationType.booking_rejected,
                 title="Booking rejected",
@@ -209,7 +221,8 @@ class BookingService:
                 booking.ride.status = RideStatus.scheduled
                 booking.ride.is_active = True
             booking.status = BookingStatus.cancelled_by_driver
-            self.notifications.create_notification(
+            enqueue_notification(
+                session_factory=self.notification_session_factory,
                 recipient_id=booking.passenger_id,
                 notification_type=NotificationType.booking_cancelled,
                 title="Booking cancelled",
@@ -244,7 +257,8 @@ class BookingService:
             booking.ride.status = RideStatus.scheduled
             booking.ride.is_active = True
         booking.status = BookingStatus.cancelled_by_passenger
-        self.notifications.create_notification(
+        enqueue_notification(
+            session_factory=self.notification_session_factory,
             recipient_id=booking.ride.driver_id,
             notification_type=NotificationType.booking_cancelled,
             title="Booking cancelled",
