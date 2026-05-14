@@ -1,12 +1,15 @@
+import json
+from datetime import datetime, timezone
+
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.models.booking import BookingStatus
-from app.models.payment import Payment, PaymentStatus
+from app.models.payment import Payment, PaymentEvent, PaymentProvider, PaymentStatus
 from app.models.user import User
 from app.repositories.booking import BookingRepository
 from app.repositories.payment import PaymentRepository
-from app.schemas.payment import PaymentCreate
+from app.schemas.payment import PaymentCreate, PaymentWebhookEvent, PaymentWebhookResponse
 from app.services.audit_log import AuditLogService
 from app.services.payment_provider import payment_provider
 
@@ -138,6 +141,52 @@ class PaymentService:
     def list_my_payments(self, current_user: User, *, limit: int = 20, offset: int = 0) -> list[Payment]:
         return self.payments.list_for_user(current_user.id, limit=limit, offset=offset)
 
+    def process_webhook_event(self, payload: PaymentWebhookEvent) -> PaymentWebhookResponse:
+        existing_event = self.payments.get_event_by_provider_id(payload.provider_event_id)
+        if existing_event:
+            payment = existing_event.payment
+            return PaymentWebhookResponse(
+                processed=False,
+                event_id=existing_event.id,
+                payment_id=payment.id if payment else None,
+                status=payment.status if payment else None,
+            )
+
+        payment = self.payments.get_by_provider_payment_id(payload.provider_payment_id)
+        event = PaymentEvent(
+            payment_id=payment.id if payment else None,
+            provider=PaymentProvider.mock,
+            provider_event_id=payload.provider_event_id,
+            event_type=payload.event_type,
+            payload_json=json.dumps(payload.payload, default=str),
+        )
+
+        try:
+            saved_event = self.payments.create_event(event)
+            if payment:
+                self._apply_webhook_transition(payment, payload.event_type)
+                self.payments.save(payment)
+            saved_event.processed_at = datetime.now(timezone.utc)
+            self.payments.db.add(saved_event)
+            self.payments.db.commit()
+            if payment:
+                self.audit_logs.record(
+                    action="payment_webhook_processed",
+                    actor_user_id=payment.payer_id,
+                    entity_type="payment",
+                    entity_id=str(payment.id),
+                    metadata={"event_type": payload.event_type, "provider_event_id": payload.provider_event_id},
+                )
+            return PaymentWebhookResponse(
+                processed=True,
+                event_id=saved_event.id,
+                payment_id=payment.id if payment else None,
+                status=payment.status if payment else None,
+            )
+        except Exception:
+            self.payments.db.rollback()
+            raise
+
     def _get_accessible_payment(self, payment_id: int, current_user: User) -> Payment:
         payment = self.payments.get_by_id(payment_id)
         if not payment:
@@ -149,3 +198,17 @@ class PaymentService:
         if current_user.id not in allowed_ids:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Payment access denied")
         return payment
+
+    def _apply_webhook_transition(self, payment: Payment, event_type: str) -> None:
+        if event_type == "payment.authorized" and payment.status == PaymentStatus.pending:
+            payment.status = PaymentStatus.authorized
+            return
+        if event_type == "payment.captured" and payment.status in {PaymentStatus.pending, PaymentStatus.authorized}:
+            payment.status = PaymentStatus.captured
+            return
+        if event_type == "payment.refunded" and payment.status in {PaymentStatus.authorized, PaymentStatus.captured}:
+            payment.status = PaymentStatus.refunded
+            return
+        if event_type == "payment.failed":
+            payment.status = PaymentStatus.failed
+            payment.failure_reason = "Provider reported payment failure"

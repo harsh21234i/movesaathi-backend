@@ -105,3 +105,44 @@ def test_duplicate_payment_is_rejected(client) -> None:
 
     assert first.status_code == 200
     assert second.status_code == 409
+
+
+def test_payment_webhook_authorizes_payment_idempotently(client) -> None:
+    booking_id, passenger_headers, _ = _create_booking(client)
+    payment = client.post("/api/v1/payments", headers=passenger_headers, json={"booking_id": booking_id}).json()
+
+    payload = {
+        "provider_event_id": "evt-authorized-1",
+        "event_type": "payment.authorized",
+        "provider_payment_id": payment["provider_payment_id"],
+        "payload": {"source": "test"},
+    }
+
+    first = client.post("/api/v1/payments/webhooks/mock", json=payload)
+    second = client.post("/api/v1/payments/webhooks/mock", json=payload)
+
+    assert first.status_code == 200
+    assert first.json()["processed"] is True
+    assert first.json()["status"] == "authorized"
+    assert second.status_code == 200
+    assert second.json()["processed"] is False
+    assert second.json()["event_id"] == first.json()["event_id"]
+
+
+def test_payment_webhook_can_capture_payment(client) -> None:
+    booking_id, passenger_headers, _ = _create_booking(client)
+    payment = client.post("/api/v1/payments", headers=passenger_headers, json={"booking_id": booking_id}).json()
+
+    response = client.post(
+        "/api/v1/payments/webhooks/mock",
+        json={
+            "provider_event_id": "evt-captured-1",
+            "event_type": "payment.captured",
+            "provider_payment_id": payment["provider_payment_id"],
+            "payload": {},
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json()["processed"] is True
+    assert response.json()["status"] == "captured"

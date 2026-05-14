@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db
 from app.models.user import User
-from app.schemas.payment import PaymentCreate, PaymentListResponse, PaymentResponse
+from app.schemas.payment import PaymentCreate, PaymentListResponse, PaymentResponse, PaymentWebhookEvent, PaymentWebhookResponse
 from app.services.payment import PaymentService
 
 router = APIRouter()
@@ -35,6 +35,14 @@ def get_booking_payment(
     current_user: User = Depends(get_current_user),
 ) -> PaymentResponse:
     return PaymentService(db).get_booking_payment(booking_id, current_user)
+
+
+@router.post("/webhooks/mock", response_model=PaymentWebhookResponse)
+def mock_payment_webhook(
+    payload: PaymentWebhookEvent,
+    db: Session = Depends(get_db),
+) -> PaymentWebhookResponse:
+    return PaymentService(db).process_webhook_event(payload)
 
 
 @router.get("/{payment_id}", response_model=PaymentResponse)

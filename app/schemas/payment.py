@@ -33,3 +33,17 @@ class PaymentListResponse(BaseModel):
 
 class PaymentActionResponse(BaseModel):
     payment: PaymentResponse
+
+
+class PaymentWebhookEvent(BaseModel):
+    provider_event_id: str
+    event_type: str
+    provider_payment_id: str
+    payload: dict[str, object] = Field(default_factory=dict)
+
+
+class PaymentWebhookResponse(BaseModel):
+    processed: bool
+    event_id: int
+    payment_id: int | None
+    status: PaymentStatus | None
