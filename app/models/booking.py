@@ -34,3 +34,4 @@ class Booking(Base):
 
     ride = relationship("Ride", back_populates="bookings")
     passenger = relationship("User", back_populates="bookings")
+    payment = relationship("Payment", back_populates="booking", uselist=False, cascade="all, delete-orphan")
