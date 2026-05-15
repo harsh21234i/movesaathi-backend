@@ -96,3 +96,11 @@ class RideRepository:
             .limit(limit)
         )
         return list(self.db.scalars(stmt).all())
+
+    def delete_locations_older_than(self, cutoff: datetime) -> int:
+        deleted = (
+            self.db.query(RideLocation)
+            .filter(RideLocation.created_at < cutoff)
+            .delete(synchronize_session=False)
+        )
+        return int(deleted)

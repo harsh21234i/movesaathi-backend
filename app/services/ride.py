@@ -1,7 +1,10 @@
+from datetime import datetime, timedelta, timezone
+
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy.orm import sessionmaker
 
+from app.core.config import settings
 from app.models.ride import Ride, RideLocation
 from app.models.booking import BookingStatus
 from app.models.notification import NotificationType
@@ -263,6 +266,8 @@ class RideService:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only driver can update this ride location")
         if ride.status in {RideStatus.cancelled, RideStatus.completed}:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Location cannot be updated for completed or cancelled rides")
+        if payload.speed_kmph is not None and payload.speed_kmph > settings.LOCATION_MAX_REPORTED_SPEED_KMPH:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Reported speed is too high for ride tracking")
 
         try:
             location = RideLocation(
@@ -283,7 +288,7 @@ class RideService:
                 entity_id=str(ride.id),
                 metadata={"latitude": payload.latitude, "longitude": payload.longitude},
             )
-            return location
+            return self._decorate_location(location)
         except Exception:
             self.rides.db.rollback()
             raise
@@ -294,11 +299,20 @@ class RideService:
         location = self.rides.get_latest_location(ride_id)
         if not location:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ride location not found")
-        return location
+        return self._decorate_location(location)
 
     def list_location_history(self, ride_id: int, current_user: User, *, limit: int = 50) -> list[RideLocation]:
         self._ensure_location_access(ride_id, current_user)
-        return self.rides.list_locations(ride_id, limit=limit)
+        return [self._decorate_location(location) for location in self.rides.list_locations(ride_id, limit=limit)]
+
+    def cleanup_old_locations(self, *, retention_days: int | None = None) -> int:
+        days = retention_days if retention_days is not None else settings.LOCATION_RETENTION_DAYS
+        if days < 1:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="retention_days must be greater than zero")
+        cutoff = datetime.now(timezone.utc) - timedelta(days=days)
+        deleted = self.rides.delete_locations_older_than(cutoff)
+        self.rides.db.commit()
+        return deleted
 
     def _ensure_location_access(self, ride_id: int, current_user: User) -> Ride:
         ride = self.rides.get_detail_by_id(ride_id)
@@ -310,5 +324,25 @@ class RideService:
             booking.passenger_id == current_user.id and booking.status == BookingStatus.accepted
             for booking in ride.bookings
         ):
+            now = datetime.now(timezone.utc)
+            departure_time = self._aware_datetime(ride.departure_time)
+            tracking_starts_at = departure_time - timedelta(minutes=settings.LOCATION_TRACKING_START_BEFORE_MINUTES)
+            tracking_ends_at = departure_time + timedelta(minutes=settings.LOCATION_TRACKING_END_AFTER_MINUTES)
+            if now < tracking_starts_at or now > tracking_ends_at:
+                raise HTTPException(
+                    status_code=status.HTTP_403_FORBIDDEN,
+                    detail="Location tracking is only available near ride time",
+                )
             return ride
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Location access denied")
+
+    def _decorate_location(self, location: RideLocation) -> RideLocation:
+        age_seconds = max(0, int((datetime.now(timezone.utc) - self._aware_datetime(location.created_at)).total_seconds()))
+        location.age_seconds = age_seconds  # type: ignore[attr-defined]
+        location.is_stale = age_seconds >= settings.LOCATION_STALE_AFTER_SECONDS  # type: ignore[attr-defined]
+        return location
+
+    def _aware_datetime(self, value: datetime) -> datetime:
+        if value.tzinfo is None:
+            return value.replace(tzinfo=timezone.utc)
+        return value
