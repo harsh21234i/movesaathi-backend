@@ -4,7 +4,7 @@ from app.models.audit_log import AuditLog
 from app.models.message import Message
 from app.models.notification import Notification
 from app.models.review import Review
-from app.models.ride import Ride
+from app.models.ride import Ride, RideLocation
 from app.models.user import User
 
-__all__ = ["Base", "User", "Ride", "Booking", "Message", "Notification", "Review", "AuditLog"]
+__all__ = ["Base", "User", "Ride", "RideLocation", "Booking", "Message", "Notification", "Review", "AuditLog"]

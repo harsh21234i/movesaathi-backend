@@ -7,7 +7,15 @@ from app.api.deps import get_current_user, get_db
 from app.api.idempotency import idempotent_execute
 from app.models.ride import RideStatus
 from app.models.user import User
-from app.schemas.ride import RideCreate, RideDetailResponse, RideResponse, RideSearchParams, RideUpdate
+from app.schemas.ride import (
+    RideCreate,
+    RideDetailResponse,
+    RideLocationCreate,
+    RideLocationResponse,
+    RideResponse,
+    RideSearchParams,
+    RideUpdate,
+)
 from app.services.ride import RideService
 
 router = APIRouter()
@@ -99,6 +107,25 @@ async def complete_ride(
         callback=lambda: RideService(db).complete_ride(ride_id, current_user),
         serializer=lambda result: RideResponse.model_validate(result),
     )
+
+
+@router.post("/{ride_id}/location", response_model=RideLocationResponse)
+def update_ride_location(
+    ride_id: int,
+    payload: RideLocationCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> RideLocationResponse:
+    return RideService(db).update_location(ride_id, payload, current_user)
+
+
+@router.get("/{ride_id}/location/latest", response_model=RideLocationResponse)
+def get_latest_ride_location(
+    ride_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> RideLocationResponse:
+    return RideService(db).get_latest_location(ride_id, current_user)
 
 
 @router.get("", response_model=list[RideResponse])
