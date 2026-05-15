@@ -27,6 +27,7 @@ class AuditLogService:
         severity: str = "info",
         metadata: dict[str, object] | None = None,
         request: Request | None = None,
+        commit: bool = True,
     ) -> AuditLog:
         audit_log = AuditLog(
             actor_user_id=actor_user_id,
@@ -38,7 +39,8 @@ class AuditLogService:
             metadata_json=json.dumps(metadata or {}, default=str) if metadata else None,
         )
         saved = self.logs.create(audit_log)
-        self.logs.db.commit()
+        if commit:
+            self.logs.db.commit()
         return saved
 
     def list_my_audit_logs(self, current_user: User, *, limit: int = 20, offset: int = 0) -> AuditLogListResponse:
