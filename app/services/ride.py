@@ -289,16 +289,26 @@ class RideService:
             raise
 
     def get_latest_location(self, ride_id: int, current_user: User) -> RideLocation:
-        ride = self.rides.get_detail_by_id(ride_id)
-        if not ride:
-            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ride not found")
-        if current_user.id != ride.driver_id and not any(
-            booking.passenger_id == current_user.id and booking.status == BookingStatus.accepted
-            for booking in ride.bookings
-        ):
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Location access denied")
+        self._ensure_location_access(ride_id, current_user)
 
         location = self.rides.get_latest_location(ride_id)
         if not location:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ride location not found")
         return location
+
+    def list_location_history(self, ride_id: int, current_user: User, *, limit: int = 50) -> list[RideLocation]:
+        self._ensure_location_access(ride_id, current_user)
+        return self.rides.list_locations(ride_id, limit=limit)
+
+    def _ensure_location_access(self, ride_id: int, current_user: User) -> Ride:
+        ride = self.rides.get_detail_by_id(ride_id)
+        if not ride:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ride not found")
+        if current_user.id == ride.driver_id:
+            return ride
+        if any(
+            booking.passenger_id == current_user.id and booking.status == BookingStatus.accepted
+            for booking in ride.bookings
+        ):
+            return ride
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Location access denied")

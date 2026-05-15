@@ -72,6 +72,41 @@ def test_accepted_passenger_can_read_latest_location(client) -> None:
     assert latest.json()["latitude"] == 18.54
 
 
+def test_driver_can_read_location_history_newest_first(client) -> None:
+    driver_headers = _register_and_login(client, name="Location Driver History", email="location-history-driver@example.com", role="driver")
+    ride_id = _create_ride(client, driver_headers)
+    for latitude in [18.51, 18.52, 18.53]:
+        response = client.post(
+            f"/api/v1/rides/{ride_id}/location",
+            headers=driver_headers,
+            json={"latitude": latitude, "longitude": 73.86},
+        )
+        assert response.status_code == 200
+
+    history = client.get(f"/api/v1/rides/{ride_id}/location/history", headers=driver_headers, params={"limit": 2})
+
+    assert history.status_code == 200
+    body = history.json()
+    assert len(body) == 2
+    assert [item["latitude"] for item in body] == [18.53, 18.52]
+
+
+def test_accepted_passenger_can_read_location_history(client) -> None:
+    driver_headers = _register_and_login(client, name="Location Driver 5", email="location-driver-5@example.com", role="driver")
+    passenger_headers = _register_and_login(client, name="Location Passenger 2", email="location-passenger-2@example.com", role="passenger")
+    ride_id = _create_ride(client, driver_headers)
+    booking = client.post("/api/v1/bookings", headers=passenger_headers, json={"ride_id": ride_id})
+    assert booking.status_code == 200
+    accepted = client.patch(f"/api/v1/bookings/{booking.json()['id']}", headers=driver_headers, json={"status": "accepted"})
+    assert accepted.status_code == 200
+    client.post(f"/api/v1/rides/{ride_id}/location", headers=driver_headers, json={"latitude": 18.54, "longitude": 73.87})
+
+    history = client.get(f"/api/v1/rides/{ride_id}/location/history", headers=passenger_headers)
+
+    assert history.status_code == 200
+    assert history.json()[0]["longitude"] == 73.87
+
+
 def test_non_participant_cannot_read_location(client) -> None:
     driver_headers = _register_and_login(client, name="Location Driver 3", email="location-driver-3@example.com", role="driver")
     outsider_headers = _register_and_login(client, name="Outsider", email="location-outsider@example.com", role="passenger")
@@ -79,6 +114,18 @@ def test_non_participant_cannot_read_location(client) -> None:
     client.post(f"/api/v1/rides/{ride_id}/location", headers=driver_headers, json={"latitude": 18.55, "longitude": 73.88})
 
     response = client.get(f"/api/v1/rides/{ride_id}/location/latest", headers=outsider_headers)
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Location access denied"
+
+
+def test_non_participant_cannot_read_location_history(client) -> None:
+    driver_headers = _register_and_login(client, name="Location Driver 6", email="location-driver-6@example.com", role="driver")
+    outsider_headers = _register_and_login(client, name="Outsider History", email="location-outsider-history@example.com", role="passenger")
+    ride_id = _create_ride(client, driver_headers)
+    client.post(f"/api/v1/rides/{ride_id}/location", headers=driver_headers, json={"latitude": 18.55, "longitude": 73.88})
+
+    response = client.get(f"/api/v1/rides/{ride_id}/location/history", headers=outsider_headers)
 
     assert response.status_code == 403
     assert response.json()["detail"] == "Location access denied"

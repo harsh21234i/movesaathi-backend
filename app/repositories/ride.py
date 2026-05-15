@@ -87,3 +87,12 @@ class RideRepository:
             .limit(1)
         )
         return self.db.scalar(stmt)
+
+    def list_locations(self, ride_id: int, *, limit: int = 50) -> list[RideLocation]:
+        stmt = (
+            select(RideLocation)
+            .where(RideLocation.ride_id == ride_id)
+            .order_by(desc(RideLocation.created_at), desc(RideLocation.id))
+            .limit(limit)
+        )
+        return list(self.db.scalars(stmt).all())
