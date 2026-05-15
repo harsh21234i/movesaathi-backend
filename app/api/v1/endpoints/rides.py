@@ -5,6 +5,8 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db
 from app.api.idempotency import idempotent_execute
+from app.core.config import settings
+from app.core.rate_limit import rate_limit_dependency
 from app.models.ride import RideStatus
 from app.models.user import User
 from app.schemas.ride import (
@@ -27,6 +29,13 @@ async def create_ride(
     request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    _: None = Depends(
+        rate_limit_dependency(
+            "ride-write",
+            limit=lambda: settings.RIDE_WRITE_RATE_LIMIT_MAX_REQUESTS,
+            window_seconds=lambda: settings.RIDE_WRITE_RATE_LIMIT_WINDOW_SECONDS,
+        )
+    ),
 ) -> Response:
     return await idempotent_execute(
         request=request,
@@ -65,6 +74,13 @@ async def update_ride(
     request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    _: None = Depends(
+        rate_limit_dependency(
+            "ride-write",
+            limit=lambda: settings.RIDE_WRITE_RATE_LIMIT_MAX_REQUESTS,
+            window_seconds=lambda: settings.RIDE_WRITE_RATE_LIMIT_WINDOW_SECONDS,
+        )
+    ),
 ) -> Response:
     return await idempotent_execute(
         request=request,
@@ -80,6 +96,13 @@ async def cancel_ride(
     request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    _: None = Depends(
+        rate_limit_dependency(
+            "ride-write",
+            limit=lambda: settings.RIDE_WRITE_RATE_LIMIT_MAX_REQUESTS,
+            window_seconds=lambda: settings.RIDE_WRITE_RATE_LIMIT_WINDOW_SECONDS,
+        )
+    ),
 ) -> Response:
     cached = await idempotent_execute(
         request=request,
@@ -100,6 +123,13 @@ async def complete_ride(
     request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    _: None = Depends(
+        rate_limit_dependency(
+            "ride-write",
+            limit=lambda: settings.RIDE_WRITE_RATE_LIMIT_MAX_REQUESTS,
+            window_seconds=lambda: settings.RIDE_WRITE_RATE_LIMIT_WINDOW_SECONDS,
+        )
+    ),
 ) -> Response:
     return await idempotent_execute(
         request=request,
@@ -115,6 +145,13 @@ def update_ride_location(
     payload: RideLocationCreate,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    _: None = Depends(
+        rate_limit_dependency(
+            "location-update",
+            limit=lambda: settings.LOCATION_UPDATE_RATE_LIMIT_MAX_REQUESTS,
+            window_seconds=lambda: settings.LOCATION_UPDATE_RATE_LIMIT_WINDOW_SECONDS,
+        )
+    ),
 ) -> RideLocationResponse:
     return RideService(db).update_location(ride_id, payload, current_user)
 
