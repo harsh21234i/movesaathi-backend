@@ -37,6 +37,7 @@ from app.schemas.auth import (
 )
 from app.services.email import EmailService
 from app.services.audit_log import AuditLogService
+from app.services.maintenance_jobs import enqueue_session_cleanup
 from app.services.job_queue import Job, job_queue
 from app.services.token_store import token_store
 
@@ -217,6 +218,7 @@ class AuthService:
             token_payload = self._decode_expected_token(access_token, expected_type="access")
             revoke_token_from_payload(token_payload)
             token_store.revoke_user_sessions(current_user.id)
+            enqueue_session_cleanup(user_id=current_user.id)
             self.audit_logs.record(
                 action="password_changed",
                 actor_user_id=current_user.id,
