@@ -132,6 +132,17 @@ class AuthService:
             )
 
         reset_token = create_reset_token(subject=str(user.id))
+        self.email_service.queue_reset_password_email(
+            to_email=user.email,
+            full_name=user.full_name,
+            reset_token=reset_token,
+            enqueue=lambda handler: job_queue.enqueue(
+                Job(
+                    name=f"send-reset-password-email:{user.id}",
+                    handler=handler,
+                )
+            ),
+        )
         response = ForgotPasswordResponse(
             message="If an account exists for that email, a reset link has been generated.",
         )

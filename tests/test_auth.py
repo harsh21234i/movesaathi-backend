@@ -59,6 +59,33 @@ def test_register_queues_verification_email_without_waiting_on_delivery(client, 
     assert queued == ["send-verification-email:1"]
 
 
+def test_forgot_password_queues_reset_email_without_waiting_on_delivery(client, monkeypatch) -> None:
+    queued: list[str] = []
+
+    monkeypatch.setattr("app.services.auth.job_queue.enqueue", lambda job: queued.append(job.name))
+
+    response = client.post(
+        "/api/v1/auth/register",
+        json={
+            "full_name": "Reset Queue User",
+            "email": "reset-queue@example.com",
+            "password": "Password123",
+            "phone_number": "9999999999",
+            "role": "driver",
+        },
+    )
+    assert response.status_code == 201
+
+    forgot_response = client.post("/api/v1/auth/forgot-password", json={"email": "reset-queue@example.com"})
+
+    assert forgot_response.status_code == 200
+    assert queued == [
+        "send-verification-email:1",
+        "send-reset-password-email:1",
+    ]
+    assert forgot_response.json()["reset_token"]
+
+
 def test_register_rejects_duplicate_email(client) -> None:
     payload = {
         "full_name": "Test User",
