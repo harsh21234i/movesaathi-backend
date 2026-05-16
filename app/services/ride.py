@@ -2,14 +2,14 @@ from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy.orm import sessionmaker
 
-from app.models.ride import Ride
+from app.models.ride import Ride, RideLocation
 from app.models.booking import BookingStatus
 from app.models.notification import NotificationType
 from app.models.ride import RideStatus
 from app.models.user import User, UserRole
 from app.services.audit_log import AuditLogService
 from app.repositories.ride import RideRepository
-from app.schemas.ride import RideCreate, RideSearchParams, RideUpdate
+from app.schemas.ride import RideCreate, RideLocationCreate, RideSearchParams, RideUpdate
 from app.services.notification_jobs import enqueue_notification
 from app.services.notification import NotificationService
 
@@ -39,6 +39,10 @@ class RideService:
                 driver_id=current_user.id,
                 origin=payload.origin,
                 destination=payload.destination,
+                origin_latitude=payload.origin_latitude,
+                origin_longitude=payload.origin_longitude,
+                destination_latitude=payload.destination_latitude,
+                destination_longitude=payload.destination_longitude,
                 departure_time=payload.departure_time,
                 available_seats=payload.available_seats,
                 price_per_seat=payload.price_per_seat,
@@ -124,6 +128,10 @@ class RideService:
 
             ride.origin = payload.origin
             ride.destination = payload.destination
+            ride.origin_latitude = payload.origin_latitude
+            ride.origin_longitude = payload.origin_longitude
+            ride.destination_latitude = payload.destination_latitude
+            ride.destination_longitude = payload.destination_longitude
             ride.departure_time = payload.departure_time
             ride.available_seats = payload.available_seats
             ride.price_per_seat = payload.price_per_seat
@@ -243,3 +251,64 @@ class RideService:
                 detail="Only driver accounts can view published rides",
             )
         return self.rides.list_by_driver(current_user.id, status=ride_status, limit=limit, offset=offset)
+
+    def update_location(self, ride_id: int, payload: RideLocationCreate, current_user: User) -> RideLocation:
+        if current_user.role != UserRole.driver:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only driver accounts can update ride location")
+
+        ride = self.rides.get_by_id(ride_id)
+        if not ride:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ride not found")
+        if ride.driver_id != current_user.id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only driver can update this ride location")
+        if ride.status in {RideStatus.cancelled, RideStatus.completed}:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Location cannot be updated for completed or cancelled rides")
+
+        try:
+            location = RideLocation(
+                ride_id=ride.id,
+                driver_id=current_user.id,
+                latitude=payload.latitude,
+                longitude=payload.longitude,
+                heading=payload.heading,
+                speed_kmph=payload.speed_kmph,
+            )
+            self.rides.db.add(location)
+            self.rides.db.flush()
+            self.rides.db.refresh(location)
+            self.audit_logs.record(
+                action="ride_location_updated",
+                actor_user_id=current_user.id,
+                entity_type="ride",
+                entity_id=str(ride.id),
+                metadata={"latitude": payload.latitude, "longitude": payload.longitude},
+            )
+            return location
+        except Exception:
+            self.rides.db.rollback()
+            raise
+
+    def get_latest_location(self, ride_id: int, current_user: User) -> RideLocation:
+        self._ensure_location_access(ride_id, current_user)
+
+        location = self.rides.get_latest_location(ride_id)
+        if not location:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ride location not found")
+        return location
+
+    def list_location_history(self, ride_id: int, current_user: User, *, limit: int = 50) -> list[RideLocation]:
+        self._ensure_location_access(ride_id, current_user)
+        return self.rides.list_locations(ride_id, limit=limit)
+
+    def _ensure_location_access(self, ride_id: int, current_user: User) -> Ride:
+        ride = self.rides.get_detail_by_id(ride_id)
+        if not ride:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ride not found")
+        if current_user.id == ride.driver_id:
+            return ride
+        if any(
+            booking.passenger_id == current_user.id and booking.status == BookingStatus.accepted
+            for booking in ride.bookings
+        ):
+            return ride
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Location access denied")

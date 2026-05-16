@@ -125,3 +125,7 @@ def rate_limit_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "RESET_PASSWORD_RATE_LIMIT_MAX_REQUESTS", 2)
     monkeypatch.setattr(settings, "RESEND_VERIFICATION_RATE_LIMIT_MAX_REQUESTS", 2)
     monkeypatch.setattr(settings, "CHAT_MESSAGE_RATE_LIMIT_MAX_REQUESTS", 2)
+    monkeypatch.setattr(settings, "RIDE_WRITE_RATE_LIMIT_MAX_REQUESTS", 2)
+    monkeypatch.setattr(settings, "BOOKING_WRITE_RATE_LIMIT_MAX_REQUESTS", 2)
+    monkeypatch.setattr(settings, "LOCATION_UPDATE_RATE_LIMIT_MAX_REQUESTS", 2)
+    monkeypatch.setattr(settings, "REVIEW_CREATE_RATE_LIMIT_MAX_REQUESTS", 2)
