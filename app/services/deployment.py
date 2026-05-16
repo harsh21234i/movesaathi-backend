@@ -4,6 +4,7 @@ from alembic.config import Config
 from alembic.script import ScriptDirectory
 
 from app.core.config import settings
+from app.services.health import build_readiness_payload
 
 
 def build_migration_preflight_payload() -> dict[str, object]:
@@ -26,10 +27,13 @@ def build_migration_preflight_payload() -> dict[str, object]:
 
 def build_deployment_preflight_payload() -> dict[str, object]:
     migrations = build_migration_preflight_payload()
+    readiness_payload, dependencies_healthy = build_readiness_payload()
 
     blocking_issues: list[str] = []
     if not migrations["single_head"]:
         blocking_issues.append("alembic-multiple-heads")
+    if not dependencies_healthy:
+        blocking_issues.append("runtime-dependencies-unhealthy")
     if settings.is_production and settings.AUTO_CREATE_TABLES:
         blocking_issues.append("auto-create-tables-enabled")
     if settings.EMAILS_ENABLED and not settings.SMTP_HOST:
@@ -37,6 +41,7 @@ def build_deployment_preflight_payload() -> dict[str, object]:
 
     checks = {
         "migrations_single_head": migrations["single_head"],
+        "runtime_dependencies_healthy": dependencies_healthy,
         "production_auto_create_disabled": not (settings.is_production and settings.AUTO_CREATE_TABLES),
         "smtp_configured_when_enabled": not settings.EMAILS_ENABLED or bool(settings.SMTP_HOST),
     }
@@ -45,6 +50,8 @@ def build_deployment_preflight_payload() -> dict[str, object]:
         "ready_to_deploy": not blocking_issues,
         "blocking_issues": blocking_issues,
         "checks": checks,
+        "runtime_dependencies_healthy": dependencies_healthy,
+        "runtime_dependencies": readiness_payload["checks"],
         "migrations": migrations,
     }
 

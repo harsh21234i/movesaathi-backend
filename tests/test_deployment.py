@@ -48,3 +48,30 @@ def test_deployment_preflight_endpoint_returns_gateable_contract(client) -> None
     assert body["ready_to_deploy"] is True
     assert body["blocking_issues"] == []
     assert body["migrations"]["single_head"] is True
+    assert body["runtime_dependencies_healthy"] is True
+
+
+def test_deployment_preflight_blocks_when_dependencies_are_unhealthy(monkeypatch) -> None:
+    monkeypatch.setattr(
+        "app.services.deployment.build_readiness_payload",
+        lambda: (
+            {
+                "status": "degraded",
+                "service": "MooveSaathi",
+                "environment": "test",
+                "checks": {
+                    "database": {"status": "ok", "detail": "ok"},
+                    "redis": {"status": "error", "detail": "redis unavailable"},
+                },
+            },
+            False,
+        ),
+    )
+
+    from app.services.deployment import build_deployment_preflight_payload
+
+    payload = build_deployment_preflight_payload()
+
+    assert payload["ready_to_deploy"] is False
+    assert "runtime-dependencies-unhealthy" in payload["blocking_issues"]
+    assert payload["checks"]["runtime_dependencies_healthy"] is False
