@@ -40,6 +40,23 @@ def _create_ride(client, driver_headers: dict[str, str], *, seats: int = 2, depa
     return response.json()["id"]
 
 
+def _create_ride_without_coordinates(client, driver_headers: dict[str, str]) -> int:
+    response = client.post(
+        "/api/v1/rides",
+        headers=driver_headers,
+        json={
+            "origin": "Pune",
+            "destination": "Mumbai",
+            "departure_time": (datetime.now(timezone.utc) + timedelta(minutes=30)).isoformat(),
+            "available_seats": 2,
+            "price_per_seat": 450,
+            "vehicle_details": "White Swift",
+        },
+    )
+    assert response.status_code == 201
+    return response.json()["id"]
+
+
 def test_driver_can_update_and_read_latest_location(client) -> None:
     driver_headers = _register_and_login(client, name="Location Driver", email="location-driver@example.com", role="driver")
     ride_id = _create_ride(client, driver_headers)
@@ -128,6 +145,47 @@ def test_accepted_passenger_cannot_track_far_before_ride_time(client) -> None:
     assert latest.json()["detail"] == "Location tracking is only available near ride time"
 
 
+def test_location_access_endpoint_reports_driver_access(client) -> None:
+    driver_headers = _register_and_login(client, name="Access Driver", email="access-driver@example.com", role="driver")
+    ride_id = _create_ride(client, driver_headers)
+
+    response = client.get(f"/api/v1/rides/{ride_id}/location/access", headers=driver_headers)
+
+    assert response.status_code == 200
+    assert response.json()["can_track"] is True
+    assert response.json()["reason"] is None
+
+
+def test_location_access_endpoint_reports_time_window_denial(client) -> None:
+    driver_headers = _register_and_login(client, name="Access Future Driver", email="access-future-driver@example.com", role="driver")
+    passenger_headers = _register_and_login(client, name="Access Future Passenger", email="access-future-passenger@example.com", role="passenger")
+    ride_id = _create_ride(client, driver_headers, departure_delta=timedelta(days=2))
+    booking = client.post("/api/v1/bookings", headers=passenger_headers, json={"ride_id": ride_id})
+    assert booking.status_code == 200
+    accepted = client.patch(f"/api/v1/bookings/{booking.json()['id']}", headers=driver_headers, json={"status": "accepted"})
+    assert accepted.status_code == 200
+
+    response = client.get(f"/api/v1/rides/{ride_id}/location/access", headers=passenger_headers)
+
+    assert response.status_code == 200
+    assert response.json()["can_track"] is False
+    assert response.json()["reason"] == "Location tracking is only available near ride time"
+    assert response.json()["tracking_starts_at"] is not None
+    assert response.json()["tracking_ends_at"] is not None
+
+
+def test_location_access_endpoint_reports_outsider_denial(client) -> None:
+    driver_headers = _register_and_login(client, name="Access Outsider Driver", email="access-outsider-driver@example.com", role="driver")
+    outsider_headers = _register_and_login(client, name="Access Outsider", email="access-outsider@example.com", role="passenger")
+    ride_id = _create_ride(client, driver_headers)
+
+    response = client.get(f"/api/v1/rides/{ride_id}/location/access", headers=outsider_headers)
+
+    assert response.status_code == 200
+    assert response.json()["can_track"] is False
+    assert response.json()["reason"] == "Location access denied"
+
+
 def test_non_participant_cannot_read_location(client) -> None:
     driver_headers = _register_and_login(client, name="Location Driver 3", email="location-driver-3@example.com", role="driver")
     outsider_headers = _register_and_login(client, name="Outsider", email="location-outsider@example.com", role="passenger")
@@ -179,3 +237,45 @@ def test_driver_cannot_report_excessive_location_speed(client) -> None:
 
     assert response.status_code == 400
     assert response.json()["detail"] == "Reported speed is too high for ride tracking"
+
+
+def test_driver_cannot_update_location_far_from_route(client) -> None:
+    driver_headers = _register_and_login(client, name="Route Guard Driver", email="route-guard-driver@example.com", role="driver")
+    ride_id = _create_ride(client, driver_headers)
+
+    response = client.post(
+        f"/api/v1/rides/{ride_id}/location",
+        headers=driver_headers,
+        json={"latitude": 28.6139, "longitude": 77.209},
+    )
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == "Location is too far from this ride route"
+
+
+def test_driver_can_update_location_near_route(client) -> None:
+    driver_headers = _register_and_login(client, name="Route Near Driver", email="route-near-driver@example.com", role="driver")
+    ride_id = _create_ride(client, driver_headers)
+
+    response = client.post(
+        f"/api/v1/rides/{ride_id}/location",
+        headers=driver_headers,
+        json={"latitude": 18.676, "longitude": 73.55},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["latitude"] == 18.676
+
+
+def test_location_route_guard_is_skipped_when_route_coordinates_missing(client) -> None:
+    driver_headers = _register_and_login(client, name="No Coordinate Driver", email="no-coordinate-driver@example.com", role="driver")
+    ride_id = _create_ride_without_coordinates(client, driver_headers)
+
+    response = client.post(
+        f"/api/v1/rides/{ride_id}/location",
+        headers=driver_headers,
+        json={"latitude": 28.6139, "longitude": 77.209},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["latitude"] == 28.6139
