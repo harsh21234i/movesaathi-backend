@@ -1,5 +1,9 @@
 from datetime import datetime, timedelta, timezone
 
+from redis.exceptions import RedisError
+
+from app.services.chat import ChatService
+
 
 def _register_and_login(client, *, name: str, email: str, role: str) -> dict[str, str]:
     register_response = client.post(
@@ -108,3 +112,28 @@ def test_mark_messages_seen_does_not_mark_own_messages(client) -> None:
     seen_response = client.post(f"/api/v1/chat/{booking_id}/seen", headers=passenger_headers)
     assert seen_response.status_code == 200
     assert seen_response.json()["updated"] == 0
+
+
+def test_chat_publish_retries_once_on_redis_failure(client, monkeypatch) -> None:
+    booking_id, passenger_headers, _ = _create_booking(client)
+    attempts = {"count": 0}
+
+    class FlakyRedis:
+        def publish(self, *args, **kwargs):
+            attempts["count"] += 1
+            if attempts["count"] == 1:
+                raise RedisError("temporary redis failure")
+
+        def close(self):
+            return None
+
+    monkeypatch.setattr(ChatService, "_create_redis_client", lambda self: FlakyRedis())
+
+    response = client.post(
+        "/api/v1/chat/messages",
+        headers=passenger_headers,
+        json={"booking_id": booking_id, "content": "redis should retry"},
+    )
+
+    assert response.status_code == 200
+    assert attempts["count"] == 2

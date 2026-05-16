@@ -9,6 +9,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, field
 
 from app.core.config import settings
+from app.core.metrics import metrics
 
 
 @dataclass(slots=True)
@@ -65,9 +66,11 @@ class JobQueue:
     def _execute(self, job: Job) -> None:
         try:
             job.handler()
+            metrics.record_job(name=job.name, status="success")
         except Exception:
             job.attempts += 1
             if job.attempts <= job.max_retries:
+                metrics.record_job(name=job.name, status="retry")
                 delay = settings.JOB_WORKER_RETRY_DELAY_SECONDS * job.attempts
                 self.logger.exception(
                     "Job %s failed; retrying in %ss",
@@ -78,6 +81,7 @@ class JobQueue:
                 time.sleep(delay)
                 self.enqueue(job)
                 return
+            metrics.record_job(name=job.name, status="failed")
             self.logger.exception("Job %s failed after retries", job.name, extra={"job_id": job.job_id})
 
 

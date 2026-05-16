@@ -9,6 +9,10 @@ from app.schemas.user import UserResponse
 class RideCreate(BaseModel):
     origin: str = Field(min_length=2, max_length=120)
     destination: str = Field(min_length=2, max_length=120)
+    origin_latitude: float | None = Field(default=None, ge=-90, le=90)
+    origin_longitude: float | None = Field(default=None, ge=-180, le=180)
+    destination_latitude: float | None = Field(default=None, ge=-90, le=90)
+    destination_longitude: float | None = Field(default=None, ge=-180, le=180)
     departure_time: datetime
     available_seats: int = Field(ge=1, le=10)
     price_per_seat: float = Field(ge=0)
@@ -19,6 +23,10 @@ class RideCreate(BaseModel):
 class RideUpdate(BaseModel):
     origin: str = Field(min_length=2, max_length=120)
     destination: str = Field(min_length=2, max_length=120)
+    origin_latitude: float | None = Field(default=None, ge=-90, le=90)
+    origin_longitude: float | None = Field(default=None, ge=-180, le=180)
+    destination_latitude: float | None = Field(default=None, ge=-90, le=90)
+    destination_longitude: float | None = Field(default=None, ge=-180, le=180)
     departure_time: datetime
     available_seats: int = Field(ge=0, le=10)
     price_per_seat: float = Field(ge=0)
@@ -41,6 +49,10 @@ class RideResponse(BaseModel):
     driver_id: int
     origin: str
     destination: str
+    origin_latitude: float | None
+    origin_longitude: float | None
+    destination_latitude: float | None
+    destination_longitude: float | None
     departure_time: datetime
     available_seats: int
     price_per_seat: float
@@ -64,3 +76,25 @@ class RideDetailResponse(RideResponse):
     booked_passengers: int
     passengers: list[RidePassengerSummary]
     booking_id: int | None = None
+
+
+class RideLocationCreate(BaseModel):
+    latitude: float = Field(ge=-90, le=90)
+    longitude: float = Field(ge=-180, le=180)
+    heading: float | None = Field(default=None, ge=0, le=360)
+    speed_kmph: float | None = Field(default=None, ge=0, le=300)
+
+
+class RideLocationResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: int
+    ride_id: int
+    driver_id: int
+    latitude: float
+    longitude: float
+    heading: float | None
+    speed_kmph: float | None
+    created_at: datetime
+    age_seconds: int
+    is_stale: bool

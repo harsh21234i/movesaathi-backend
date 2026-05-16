@@ -1,10 +1,10 @@
 from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import desc, select
 from sqlalchemy.orm import Session, joinedload
 
 from app.models.booking import Booking
-from app.models.ride import Ride, RideStatus
+from app.models.ride import Ride, RideLocation, RideStatus
 
 
 class RideRepository:
@@ -78,3 +78,29 @@ class RideRepository:
             stmt = stmt.where(Ride.status == status)
         stmt = stmt.order_by(Ride.departure_time).offset(offset).limit(limit)
         return list(self.db.scalars(stmt).all())
+
+    def get_latest_location(self, ride_id: int) -> RideLocation | None:
+        stmt = (
+            select(RideLocation)
+            .where(RideLocation.ride_id == ride_id)
+            .order_by(desc(RideLocation.created_at), desc(RideLocation.id))
+            .limit(1)
+        )
+        return self.db.scalar(stmt)
+
+    def list_locations(self, ride_id: int, *, limit: int = 50) -> list[RideLocation]:
+        stmt = (
+            select(RideLocation)
+            .where(RideLocation.ride_id == ride_id)
+            .order_by(desc(RideLocation.created_at), desc(RideLocation.id))
+            .limit(limit)
+        )
+        return list(self.db.scalars(stmt).all())
+
+    def delete_locations_older_than(self, cutoff: datetime) -> int:
+        deleted = (
+            self.db.query(RideLocation)
+            .filter(RideLocation.created_at < cutoff)
+            .delete(synchronize_session=False)
+        )
+        return int(deleted)

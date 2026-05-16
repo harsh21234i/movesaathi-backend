@@ -9,6 +9,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.api.deps import get_db
 from app.core.config import settings
+from app.core.metrics import metrics
 from app.db.base import Base
 from app.main import app
 from app.core.rate_limit import rate_limiter
@@ -57,6 +58,7 @@ def setup_database(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, Non
     rate_limiter.reset()
     token_store._in_memory_sessions.clear()
     token_store._in_memory_user_sessions.clear()
+    metrics.reset()
     yield
     Base.metadata.drop_all(bind=engine)
     token_store._in_memory_tokens.clear()
@@ -64,6 +66,7 @@ def setup_database(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, Non
     token_store._in_memory_user_sessions.clear()
     idempotency_store.reset()
     rate_limiter.reset()
+    metrics.reset()
 
 
 @pytest.fixture
@@ -122,3 +125,7 @@ def rate_limit_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "RESET_PASSWORD_RATE_LIMIT_MAX_REQUESTS", 2)
     monkeypatch.setattr(settings, "RESEND_VERIFICATION_RATE_LIMIT_MAX_REQUESTS", 2)
     monkeypatch.setattr(settings, "CHAT_MESSAGE_RATE_LIMIT_MAX_REQUESTS", 2)
+    monkeypatch.setattr(settings, "RIDE_WRITE_RATE_LIMIT_MAX_REQUESTS", 2)
+    monkeypatch.setattr(settings, "BOOKING_WRITE_RATE_LIMIT_MAX_REQUESTS", 2)
+    monkeypatch.setattr(settings, "LOCATION_UPDATE_RATE_LIMIT_MAX_REQUESTS", 2)
+    monkeypatch.setattr(settings, "REVIEW_CREATE_RATE_LIMIT_MAX_REQUESTS", 2)

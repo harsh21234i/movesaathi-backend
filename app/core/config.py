@@ -35,6 +35,19 @@ class Settings(BaseSettings):
     RESEND_VERIFICATION_RATE_LIMIT_WINDOW_SECONDS: int = 900
     CHAT_MESSAGE_RATE_LIMIT_MAX_REQUESTS: int = 20
     CHAT_MESSAGE_RATE_LIMIT_WINDOW_SECONDS: int = 60
+    RIDE_WRITE_RATE_LIMIT_MAX_REQUESTS: int = 20
+    RIDE_WRITE_RATE_LIMIT_WINDOW_SECONDS: int = 60
+    BOOKING_WRITE_RATE_LIMIT_MAX_REQUESTS: int = 20
+    BOOKING_WRITE_RATE_LIMIT_WINDOW_SECONDS: int = 60
+    LOCATION_UPDATE_RATE_LIMIT_MAX_REQUESTS: int = 60
+    LOCATION_UPDATE_RATE_LIMIT_WINDOW_SECONDS: int = 60
+    LOCATION_STALE_AFTER_SECONDS: int = 300
+    LOCATION_TRACKING_START_BEFORE_MINUTES: int = 120
+    LOCATION_TRACKING_END_AFTER_MINUTES: int = 720
+    LOCATION_MAX_REPORTED_SPEED_KMPH: float = 180
+    LOCATION_RETENTION_DAYS: int = 30
+    REVIEW_CREATE_RATE_LIMIT_MAX_REQUESTS: int = 10
+    REVIEW_CREATE_RATE_LIMIT_WINDOW_SECONDS: int = 3600
     AUTH_MAX_FAILED_LOGIN_ATTEMPTS: int = 5
     AUTH_LOCKOUT_WINDOW_MINUTES: int = 15
     IDEMPOTENCY_KEY_TTL_SECONDS: int = 86400
@@ -57,6 +70,10 @@ class Settings(BaseSettings):
     FRONTEND_URL: str = "http://localhost:5173"
     AUTO_CREATE_TABLES: bool = True
     SQL_ECHO: bool = False
+    ERROR_REPORTING_ENABLED: bool = False
+    ERROR_REPORTING_DSN: str | None = None
+    SUPPORT_API_ENABLED: bool = False
+    SUPPORT_API_KEY: str | None = None
     BACKEND_CORS_ORIGINS: list[AnyHttpUrl | str] = ["http://localhost:5173"]
 
     @property
@@ -96,6 +113,10 @@ class Settings(BaseSettings):
             raise ValueError("SMTP_HOST must be configured when EMAILS_ENABLED is true")
         if self.EMAILS_ENABLED and self.SMTP_USE_TLS and self.SMTP_USE_SSL:
             raise ValueError("SMTP_USE_TLS and SMTP_USE_SSL cannot both be enabled")
+        if self.ERROR_REPORTING_ENABLED and not self.ERROR_REPORTING_DSN:
+            raise ValueError("ERROR_REPORTING_DSN must be configured when error reporting is enabled")
+        if self.SUPPORT_API_ENABLED and not self.SUPPORT_API_KEY:
+            raise ValueError("SUPPORT_API_KEY must be configured when support API is enabled")
         return self
 
 

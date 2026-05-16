@@ -3,6 +3,8 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db
 from app.api.idempotency import idempotent_execute
+from app.core.config import settings
+from app.core.rate_limit import rate_limit_dependency
 from app.models.booking import BookingStatus
 from app.models.user import User
 from app.schemas.booking import (
@@ -24,6 +26,13 @@ async def create_booking(
     request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    _: None = Depends(
+        rate_limit_dependency(
+            "booking-write",
+            limit=lambda: settings.BOOKING_WRITE_RATE_LIMIT_MAX_REQUESTS,
+            window_seconds=lambda: settings.BOOKING_WRITE_RATE_LIMIT_WINDOW_SECONDS,
+        )
+    ),
 ) -> BookingResponse:
     return await idempotent_execute(
         request=request,
@@ -71,6 +80,13 @@ async def update_booking_status(
     request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    _: None = Depends(
+        rate_limit_dependency(
+            "booking-write",
+            limit=lambda: settings.BOOKING_WRITE_RATE_LIMIT_MAX_REQUESTS,
+            window_seconds=lambda: settings.BOOKING_WRITE_RATE_LIMIT_WINDOW_SECONDS,
+        )
+    ),
 ) -> BookingResponse:
     return await idempotent_execute(
         request=request,

@@ -5,9 +5,19 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db
 from app.api.idempotency import idempotent_execute
+from app.core.config import settings
+from app.core.rate_limit import rate_limit_dependency
 from app.models.ride import RideStatus
 from app.models.user import User
-from app.schemas.ride import RideCreate, RideDetailResponse, RideResponse, RideSearchParams, RideUpdate
+from app.schemas.ride import (
+    RideCreate,
+    RideDetailResponse,
+    RideLocationCreate,
+    RideLocationResponse,
+    RideResponse,
+    RideSearchParams,
+    RideUpdate,
+)
 from app.services.ride import RideService
 
 router = APIRouter()
@@ -19,6 +29,13 @@ async def create_ride(
     request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    _: None = Depends(
+        rate_limit_dependency(
+            "ride-write",
+            limit=lambda: settings.RIDE_WRITE_RATE_LIMIT_MAX_REQUESTS,
+            window_seconds=lambda: settings.RIDE_WRITE_RATE_LIMIT_WINDOW_SECONDS,
+        )
+    ),
 ) -> Response:
     return await idempotent_execute(
         request=request,
@@ -57,6 +74,13 @@ async def update_ride(
     request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    _: None = Depends(
+        rate_limit_dependency(
+            "ride-write",
+            limit=lambda: settings.RIDE_WRITE_RATE_LIMIT_MAX_REQUESTS,
+            window_seconds=lambda: settings.RIDE_WRITE_RATE_LIMIT_WINDOW_SECONDS,
+        )
+    ),
 ) -> Response:
     return await idempotent_execute(
         request=request,
@@ -72,6 +96,13 @@ async def cancel_ride(
     request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    _: None = Depends(
+        rate_limit_dependency(
+            "ride-write",
+            limit=lambda: settings.RIDE_WRITE_RATE_LIMIT_MAX_REQUESTS,
+            window_seconds=lambda: settings.RIDE_WRITE_RATE_LIMIT_WINDOW_SECONDS,
+        )
+    ),
 ) -> Response:
     cached = await idempotent_execute(
         request=request,
@@ -92,6 +123,13 @@ async def complete_ride(
     request: Request,
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
+    _: None = Depends(
+        rate_limit_dependency(
+            "ride-write",
+            limit=lambda: settings.RIDE_WRITE_RATE_LIMIT_MAX_REQUESTS,
+            window_seconds=lambda: settings.RIDE_WRITE_RATE_LIMIT_WINDOW_SECONDS,
+        )
+    ),
 ) -> Response:
     return await idempotent_execute(
         request=request,
@@ -99,6 +137,42 @@ async def complete_ride(
         callback=lambda: RideService(db).complete_ride(ride_id, current_user),
         serializer=lambda result: RideResponse.model_validate(result),
     )
+
+
+@router.post("/{ride_id}/location", response_model=RideLocationResponse)
+def update_ride_location(
+    ride_id: int,
+    payload: RideLocationCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    _: None = Depends(
+        rate_limit_dependency(
+            "location-update",
+            limit=lambda: settings.LOCATION_UPDATE_RATE_LIMIT_MAX_REQUESTS,
+            window_seconds=lambda: settings.LOCATION_UPDATE_RATE_LIMIT_WINDOW_SECONDS,
+        )
+    ),
+) -> RideLocationResponse:
+    return RideService(db).update_location(ride_id, payload, current_user)
+
+
+@router.get("/{ride_id}/location/latest", response_model=RideLocationResponse)
+def get_latest_ride_location(
+    ride_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> RideLocationResponse:
+    return RideService(db).get_latest_location(ride_id, current_user)
+
+
+@router.get("/{ride_id}/location/history", response_model=list[RideLocationResponse])
+def list_ride_location_history(
+    ride_id: int,
+    limit: int = Query(default=50, ge=1, le=200),
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> list[RideLocationResponse]:
+    return RideService(db).list_location_history(ride_id, current_user, limit=limit)
 
 
 @router.get("", response_model=list[RideResponse])
