@@ -1,8 +1,10 @@
 from collections.abc import Callable
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy.orm import Session
 
 from app.models.booking import Booking
+from app.repositories.booking import BookingRepository
 from app.services.email import EmailService
 from app.services.job_queue import Job, job_queue
 from app.services.token_store import token_store
@@ -56,3 +58,25 @@ def enqueue_trip_reminder_email(*, booking: Booking) -> None:
             handler=send_reminder,
         )
     )
+
+
+def enqueue_due_trip_reminders(
+    *,
+    session_factory: Callable[[], Session],
+    reminder_window_minutes: int = 60,
+    limit: int = 100,
+) -> None:
+    now = datetime.now(timezone.utc)
+    upper_bound = now + timedelta(minutes=reminder_window_minutes)
+
+    db = session_factory()
+    try:
+        bookings = BookingRepository(db).list_accepted_departures_within(
+            starts_after=now,
+            ends_before=upper_bound,
+            limit=limit,
+        )
+        for booking in bookings:
+            enqueue_trip_reminder_email(booking=booking)
+    finally:
+        db.close()
