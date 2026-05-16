@@ -38,12 +38,19 @@ def build_deployment_preflight_payload() -> dict[str, object]:
         blocking_issues.append("auto-create-tables-enabled")
     if settings.EMAILS_ENABLED and not settings.SMTP_HOST:
         blocking_issues.append("smtp-missing")
+    if settings.ERROR_REPORTING_ENABLED and not settings.ERROR_REPORTING_DSN:
+        blocking_issues.append("error-reporting-missing-dsn")
+    if settings.SUPPORT_API_ENABLED and not settings.SUPPORT_API_KEY:
+        blocking_issues.append("support-api-missing-key")
 
     checks = {
         "migrations_single_head": migrations["single_head"],
         "runtime_dependencies_healthy": dependencies_healthy,
         "production_auto_create_disabled": not (settings.is_production and settings.AUTO_CREATE_TABLES),
         "smtp_configured_when_enabled": not settings.EMAILS_ENABLED or bool(settings.SMTP_HOST),
+        "error_reporting_configured_when_enabled": not settings.ERROR_REPORTING_ENABLED
+        or bool(settings.ERROR_REPORTING_DSN),
+        "support_api_configured_when_enabled": not settings.SUPPORT_API_ENABLED or bool(settings.SUPPORT_API_KEY),
     }
 
     return {

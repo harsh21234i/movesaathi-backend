@@ -21,6 +21,8 @@ def test_deployment_status_reports_runtime_flags(client) -> None:
     assert body["preflight"]["ready_to_deploy"] is True
     assert body["preflight"]["blocking_issues"] == []
     assert body["preflight"]["checks"]["migrations_single_head"] is True
+    assert body["preflight"]["checks"]["error_reporting_configured_when_enabled"] is True
+    assert body["preflight"]["checks"]["support_api_configured_when_enabled"] is True
 
 
 def test_deployment_status_is_not_production_safe_in_development(client) -> None:
@@ -75,3 +77,20 @@ def test_deployment_preflight_blocks_when_dependencies_are_unhealthy(monkeypatch
     assert payload["ready_to_deploy"] is False
     assert "runtime-dependencies-unhealthy" in payload["blocking_issues"]
     assert payload["checks"]["runtime_dependencies_healthy"] is False
+
+
+def test_deployment_preflight_blocks_when_error_reporting_or_support_is_misconfigured(monkeypatch) -> None:
+    monkeypatch.setattr("app.services.deployment.settings.ERROR_REPORTING_ENABLED", True)
+    monkeypatch.setattr("app.services.deployment.settings.ERROR_REPORTING_DSN", None)
+    monkeypatch.setattr("app.services.deployment.settings.SUPPORT_API_ENABLED", True)
+    monkeypatch.setattr("app.services.deployment.settings.SUPPORT_API_KEY", None)
+
+    from app.services.deployment import build_deployment_preflight_payload
+
+    payload = build_deployment_preflight_payload()
+
+    assert payload["ready_to_deploy"] is False
+    assert "error-reporting-missing-dsn" in payload["blocking_issues"]
+    assert "support-api-missing-key" in payload["blocking_issues"]
+    assert payload["checks"]["error_reporting_configured_when_enabled"] is False
+    assert payload["checks"]["support_api_configured_when_enabled"] is False
