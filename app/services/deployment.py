@@ -1,10 +1,10 @@
+from collections.abc import Callable
 from pathlib import Path
 
 from alembic.config import Config
 from alembic.script import ScriptDirectory
 
 from app.core.config import settings
-from collections.abc import Callable
 
 from app.services.health import build_readiness_payload
 
@@ -111,4 +111,32 @@ def build_deployment_status_payload() -> dict[str, object]:
         },
         "migrations": build_migration_preflight_payload(),
         "preflight": build_deployment_preflight_payload(),
+    }
+
+
+def build_deployment_checklist_payload() -> dict[str, object]:
+    preflight = build_deployment_preflight_payload()
+    return {
+        "release": {
+            "version": settings.APP_VERSION,
+            "service": settings.PROJECT_NAME,
+        },
+        "deploy_steps": [
+            "take a database backup",
+            "run alembic upgrade head",
+            "verify /health/ready",
+            "start the new API release",
+            "monitor logs, metrics, and job retries",
+        ],
+        "rollback_steps": [
+            "stop the new release",
+            "restore the previous application version",
+            "restore the database backup if the migration was not backward compatible",
+            "verify /health/ready again",
+        ],
+        "guards": {
+            "single_migration_head": build_migration_preflight_payload()["single_head"],
+            "runtime_dependencies_healthy": preflight["runtime_dependencies_healthy"],
+            "ready_to_deploy": preflight["ready_to_deploy"],
+        },
     }

@@ -104,3 +104,16 @@ def test_deployment_preflight_blocks_when_error_reporting_or_support_is_misconfi
     assert "support-api-missing-key" in payload["blocking_issues"]
     assert payload["checks"]["error_reporting_configured_when_enabled"] is False
     assert payload["checks"]["support_api_configured_when_enabled"] is False
+
+
+def test_deployment_checklist_endpoint_returns_release_steps(client) -> None:
+    response = client.get("/api/v1/deployment/checklist")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["release"]["version"] == settings.APP_VERSION
+    assert body["guards"]["single_migration_head"] is True
+    assert body["guards"]["runtime_dependencies_healthy"] is True
+    assert body["guards"]["ready_to_deploy"] is True
+    assert "run alembic upgrade head" in body["deploy_steps"]
+    assert "restore the database backup" in " ".join(body["rollback_steps"])

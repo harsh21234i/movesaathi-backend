@@ -87,6 +87,16 @@ docker compose up --build
 - `GET /health/ready`
 - `GET /metrics`
 
+## Deployment Readiness
+
+The deployment helpers are exposed under `/api/v1/deployment`:
+
+- `GET /api/v1/deployment/status` returns environment, release metadata, migration state, dependency state, and preflight checks
+- `GET /api/v1/deployment/preflight` returns a deploy gate with blocking issues and readiness checks
+- `GET /api/v1/deployment/checklist` returns a machine-readable deploy and rollback checklist
+
+Use these endpoints to verify a release before you push it to production or roll it back after an incident.
+
 ## Development Notes
 
 - `ci.db` is used in CI and local migration smoke tests
