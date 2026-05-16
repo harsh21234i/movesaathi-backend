@@ -5,6 +5,7 @@ from datetime import timedelta
 from fastapi import HTTPException, status
 from jose import JWTError
 from sqlalchemy.orm import Session
+from sqlalchemy.orm import sessionmaker
 
 from app.api.deps import revoke_token_from_payload
 from app.core.config import settings
@@ -37,7 +38,7 @@ from app.schemas.auth import (
 )
 from app.services.email import EmailService
 from app.services.audit_log import AuditLogService
-from app.services.maintenance_jobs import enqueue_session_cleanup
+from app.services.maintenance_jobs import enqueue_audit_log_retention, enqueue_session_cleanup
 from app.services.job_queue import Job, job_queue
 from app.services.token_store import token_store
 
@@ -48,6 +49,13 @@ class AuthService:
         self.email_service = EmailService()
         self.audit_logs = AuditLogService(db)
         self.logger = logging.getLogger(__name__)
+        self.retention_session_factory = sessionmaker(
+            bind=db.get_bind(),
+            autoflush=False,
+            autocommit=False,
+            expire_on_commit=False,
+            future=True,
+        )
 
     def register(self, payload: RegisterRequest) -> RegisterResponse:
         if self.users.get_by_email(payload.email):
@@ -219,6 +227,7 @@ class AuthService:
             revoke_token_from_payload(token_payload)
             token_store.revoke_user_sessions(current_user.id)
             enqueue_session_cleanup(user_id=current_user.id)
+            enqueue_audit_log_retention(session_factory=self.retention_session_factory, retention_days=90)
             self.audit_logs.record(
                 action="password_changed",
                 actor_user_id=current_user.id,

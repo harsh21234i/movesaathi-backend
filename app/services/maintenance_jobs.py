@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy.orm import Session
 
 from app.models.booking import Booking
+from app.repositories.audit_log import AuditLogRepository
 from app.repositories.booking import BookingRepository
 from app.services.email import EmailService
 from app.services.job_queue import Job, job_queue
@@ -80,3 +81,25 @@ def enqueue_due_trip_reminders(
             enqueue_trip_reminder_email(booking=booking)
     finally:
         db.close()
+
+
+def enqueue_audit_log_retention(
+    *,
+    session_factory: Callable[[], Session],
+    retention_days: int = 90,
+) -> None:
+    def cleanup_audit_logs() -> None:
+        db = session_factory()
+        try:
+            deleted = AuditLogRepository(db).delete_older_than(days=retention_days)
+            db.commit()
+            return None
+        finally:
+            db.close()
+
+    job_queue.enqueue(
+        Job(
+            name=f"audit-log-retention:{retention_days}d",
+            handler=cleanup_audit_logs,
+        )
+    )

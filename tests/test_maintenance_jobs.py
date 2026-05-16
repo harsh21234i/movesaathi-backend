@@ -1,7 +1,13 @@
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
-from app.services.maintenance_jobs import enqueue_job_housekeeping, enqueue_session_cleanup, enqueue_trip_reminder_email
+from app.services.maintenance_jobs import (
+    enqueue_audit_log_retention,
+    enqueue_due_trip_reminders,
+    enqueue_job_housekeeping,
+    enqueue_session_cleanup,
+    enqueue_trip_reminder_email,
+)
 from tests.conftest import TestingSessionLocal
 from tests.test_bookings import _create_ride, _register_and_login
 
@@ -109,9 +115,23 @@ def test_enqueue_due_trip_reminders_only_queues_imminent_bookings(client, monkey
         json={"status": "accepted"},
     )
 
-    from app.services.maintenance_jobs import enqueue_due_trip_reminders
-
     enqueue_due_trip_reminders(session_factory=lambda: TestingSessionLocal(), reminder_window_minutes=60)
 
     assert any(name.startswith("trip-reminder-email:") for name in calls)
     assert len([name for name in calls if name.startswith("trip-reminder-email:")]) == 1
+
+
+def test_enqueue_audit_log_retention_uses_job_queue(monkeypatch) -> None:
+    calls: list[str] = []
+    monkeypatch.setattr("app.services.maintenance_jobs.job_queue.enqueue", lambda job: calls.append(job.name))
+
+    class DummyDB:
+        def commit(self):
+            return None
+
+        def close(self):
+            return None
+
+    enqueue_audit_log_retention(session_factory=lambda: DummyDB(), retention_days=90)
+
+    assert calls == ["audit-log-retention:90d"]
