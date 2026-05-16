@@ -53,6 +53,11 @@ def build_deployment_status_payload() -> dict[str, object]:
     return {
         "environment": settings.APP_ENV,
         "service": settings.PROJECT_NAME,
+        "release": {
+            "version": settings.APP_VERSION,
+            "build_sha": settings.BUILD_SHA,
+            "build_timestamp": settings.BUILD_TIMESTAMP,
+        },
         "production_safe": settings.is_production is False or settings.should_create_tables is False,
         "database": {
             "url_scheme": settings.DATABASE_URL.split(":", 1)[0],

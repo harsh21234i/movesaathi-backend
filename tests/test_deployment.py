@@ -8,6 +8,9 @@ def test_deployment_status_reports_runtime_flags(client) -> None:
     body = response.json()
     assert body["environment"] == settings.APP_ENV
     assert body["service"] == "MooveSaathi"
+    assert body["release"]["version"] == settings.APP_VERSION
+    assert body["release"]["build_sha"] is None
+    assert body["release"]["build_timestamp"] is None
     assert body["database"]["auto_create_tables"] == settings.AUTO_CREATE_TABLES
     assert body["jobs"]["enabled"] == settings.JOB_WORKER_ENABLED
     assert body["integrations"]["emails_enabled"] == settings.EMAILS_ENABLED
