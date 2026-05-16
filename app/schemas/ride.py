@@ -96,3 +96,5 @@ class RideLocationResponse(BaseModel):
     heading: float | None
     speed_kmph: float | None
     created_at: datetime
+    age_seconds: int
+    is_stale: bool
