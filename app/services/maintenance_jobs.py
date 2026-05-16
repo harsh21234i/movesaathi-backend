@@ -2,6 +2,8 @@ from collections.abc import Callable
 
 from sqlalchemy.orm import Session
 
+from app.models.booking import Booking
+from app.services.email import EmailService
 from app.services.job_queue import Job, job_queue
 from app.services.token_store import token_store
 
@@ -32,3 +34,25 @@ def enqueue_job_housekeeping(
                 db.close()
 
         job_queue.enqueue(Job(name="housekeeping:heartbeat", handler=cleanup_marker))
+
+
+def enqueue_trip_reminder_email(*, booking: Booking) -> None:
+    def send_reminder() -> None:
+        passenger = booking.passenger
+        EmailService().send_email(
+            to_email=passenger.email,
+            subject="Trip reminder from MooveSaathi",
+            text_body=(
+                f"Hi {passenger.full_name},\n\n"
+                f"Your trip from {booking.ride.origin} to {booking.ride.destination} departs at "
+                f"{booking.ride.departure_time.isoformat()}.\n\n"
+                "Please be ready a little early."
+            ),
+        )
+
+    job_queue.enqueue(
+        Job(
+            name=f"trip-reminder-email:{booking.id}",
+            handler=send_reminder,
+        )
+    )

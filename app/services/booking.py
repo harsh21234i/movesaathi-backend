@@ -11,6 +11,7 @@ from app.repositories.booking import BookingRepository
 from app.repositories.ride import RideRepository
 from app.schemas.booking import BookingCreate
 from app.services.notification_jobs import enqueue_notification
+from app.services.maintenance_jobs import enqueue_trip_reminder_email
 from app.services.notification import NotificationService
 from app.services.payment import PaymentService
 
@@ -217,6 +218,7 @@ class BookingService:
                 title="Booking accepted",
                 body=f"Your seat request from {booking.ride.origin} to {booking.ride.destination} was accepted.",
             )
+            enqueue_trip_reminder_email(booking=booking)
             return
 
         if status_value == BookingStatus.rejected:
