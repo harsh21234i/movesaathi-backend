@@ -54,9 +54,10 @@ def test_deployment_preflight_endpoint_returns_gateable_contract(client) -> None
 
 
 def test_deployment_preflight_blocks_when_dependencies_are_unhealthy(monkeypatch) -> None:
-    monkeypatch.setattr(
-        "app.services.deployment.build_readiness_payload",
-        lambda: (
+    from app.services.deployment import build_deployment_preflight_payload
+
+    payload = build_deployment_preflight_payload(
+        readiness_check=lambda: (
             {
                 "status": "degraded",
                 "service": "MooveSaathi",
@@ -67,12 +68,8 @@ def test_deployment_preflight_blocks_when_dependencies_are_unhealthy(monkeypatch
                 },
             },
             False,
-        ),
+        )
     )
-
-    from app.services.deployment import build_deployment_preflight_payload
-
-    payload = build_deployment_preflight_payload()
 
     assert payload["ready_to_deploy"] is False
     assert "runtime-dependencies-unhealthy" in payload["blocking_issues"]
@@ -87,7 +84,20 @@ def test_deployment_preflight_blocks_when_error_reporting_or_support_is_misconfi
 
     from app.services.deployment import build_deployment_preflight_payload
 
-    payload = build_deployment_preflight_payload()
+    payload = build_deployment_preflight_payload(
+        readiness_check=lambda: (
+            {
+                "status": "ok",
+                "service": "MooveSaathi",
+                "environment": "test",
+                "checks": {
+                    "database": {"status": "ok", "detail": "ok"},
+                    "redis": {"status": "ok", "detail": "ok"},
+                },
+            },
+            True,
+        )
+    )
 
     assert payload["ready_to_deploy"] is False
     assert "error-reporting-missing-dsn" in payload["blocking_issues"]
