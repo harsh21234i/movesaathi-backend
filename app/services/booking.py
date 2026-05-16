@@ -12,6 +12,7 @@ from app.repositories.ride import RideRepository
 from app.schemas.booking import BookingCreate
 from app.services.notification_jobs import enqueue_notification
 from app.services.notification import NotificationService
+from app.services.payment import PaymentService
 
 
 class BookingService:
@@ -20,6 +21,7 @@ class BookingService:
         self.rides = RideRepository(db)
         self.notifications = NotificationService(db)
         self.audit_logs = AuditLogService(db)
+        self.payments = PaymentService(db)
         self.notification_session_factory = sessionmaker(
             bind=db.get_bind(),
             autoflush=False,
@@ -207,6 +209,7 @@ class BookingService:
             booking.ride.available_seats -= 1
             booking.ride.status = RideStatus.full if booking.ride.available_seats == 0 else RideStatus.scheduled
             booking.ride.is_active = booking.ride.status == RideStatus.scheduled
+            self.payments.capture_payment_for_booking(booking.id, commit=False)
             enqueue_notification(
                 session_factory=self.notification_session_factory,
                 recipient_id=booking.passenger_id,
@@ -236,6 +239,7 @@ class BookingService:
                 booking.ride.available_seats += 1
                 booking.ride.status = RideStatus.scheduled
                 booking.ride.is_active = True
+            self.payments.refund_payment_for_booking(booking.id, commit=False)
             booking.status = BookingStatus.cancelled_by_driver
             enqueue_notification(
                 session_factory=self.notification_session_factory,
@@ -272,6 +276,7 @@ class BookingService:
             booking.ride.available_seats += 1
             booking.ride.status = RideStatus.scheduled
             booking.ride.is_active = True
+        self.payments.refund_payment_for_booking(booking.id, commit=False)
         booking.status = BookingStatus.cancelled_by_passenger
         enqueue_notification(
             session_factory=self.notification_session_factory,
