@@ -100,6 +100,7 @@ class JobQueue:
 
     def snapshot(self) -> dict[str, object]:
         with self._state_lock:
+            recent_events = list(self._recent_events)
             return {
                 "worker_enabled": settings.JOB_WORKER_ENABLED,
                 "synchronous": settings.JOBS_SYNCHRONOUS,
@@ -111,7 +112,12 @@ class JobQueue:
                 "last_successful_job": self._last_successful_job,
                 "last_failed_job": self._last_failed_job,
                 "last_error": self._last_error,
-                "recent_events": list(self._recent_events),
+                "recent_events": recent_events,
+                "failed_email_jobs": [
+                    event
+                    for event in recent_events
+                    if event["status"] == "failed" and str(event["name"]).startswith("send-")
+                ],
             }
 
     def reset(self) -> None:

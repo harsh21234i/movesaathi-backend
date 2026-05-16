@@ -66,6 +66,7 @@ def test_jobs_status_endpoint_reports_snapshot(client, monkeypatch) -> None:
             "last_failed_job": None,
             "last_error": None,
             "recent_events": [],
+            "failed_email_jobs": [],
         },
     )
 
@@ -76,3 +77,18 @@ def test_jobs_status_endpoint_reports_snapshot(client, monkeypatch) -> None:
     assert body["worker_enabled"] is True
     assert body["success_total"] == 3
     assert body["retry_total"] == 1
+
+
+def test_job_queue_snapshot_lists_failed_email_jobs(monkeypatch) -> None:
+    job_queue.reset()
+    monkeypatch.setattr("app.services.job_queue.settings.JOBS_SYNCHRONOUS", True)
+
+    def handler() -> None:
+        raise RuntimeError("email failed")
+
+    job_queue.enqueue(Job(name="send-reset-password-email:7", handler=handler, max_retries=0))
+
+    snapshot = job_queue.snapshot()
+    assert snapshot["failed_total"] == 1
+    assert len(snapshot["failed_email_jobs"]) == 1
+    assert snapshot["failed_email_jobs"][0]["name"] == "send-reset-password-email:7"
