@@ -24,6 +24,31 @@ def build_migration_preflight_payload() -> dict[str, object]:
     }
 
 
+def build_deployment_preflight_payload() -> dict[str, object]:
+    migrations = build_migration_preflight_payload()
+
+    blocking_issues: list[str] = []
+    if not migrations["single_head"]:
+        blocking_issues.append("alembic-multiple-heads")
+    if settings.is_production and settings.AUTO_CREATE_TABLES:
+        blocking_issues.append("auto-create-tables-enabled")
+    if settings.EMAILS_ENABLED and not settings.SMTP_HOST:
+        blocking_issues.append("smtp-missing")
+
+    checks = {
+        "migrations_single_head": migrations["single_head"],
+        "production_auto_create_disabled": not (settings.is_production and settings.AUTO_CREATE_TABLES),
+        "smtp_configured_when_enabled": not settings.EMAILS_ENABLED or bool(settings.SMTP_HOST),
+    }
+
+    return {
+        "ready_to_deploy": not blocking_issues,
+        "blocking_issues": blocking_issues,
+        "checks": checks,
+        "migrations": migrations,
+    }
+
+
 def build_deployment_status_payload() -> dict[str, object]:
     return {
         "environment": settings.APP_ENV,
@@ -46,4 +71,5 @@ def build_deployment_status_payload() -> dict[str, object]:
             "smtp_configured": bool(settings.SMTP_HOST),
         },
         "migrations": build_migration_preflight_payload(),
+        "preflight": build_deployment_preflight_payload(),
     }
