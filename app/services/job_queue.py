@@ -101,6 +101,11 @@ class JobQueue:
     def snapshot(self) -> dict[str, object]:
         with self._state_lock:
             recent_events = list(self._recent_events)
+            maintenance_events = [
+                event
+                for event in recent_events
+                if event["name"].startswith(("session-cleanup:", "trip-reminder-email:", "audit-log-retention:"))
+            ]
             return {
                 "worker_enabled": settings.JOB_WORKER_ENABLED,
                 "synchronous": settings.JOBS_SYNCHRONOUS,
@@ -113,6 +118,12 @@ class JobQueue:
                 "last_failed_job": self._last_failed_job,
                 "last_error": self._last_error,
                 "recent_events": recent_events,
+                "maintenance_jobs": {
+                    "total": len(maintenance_events),
+                    "session_cleanup": sum(1 for event in maintenance_events if str(event["name"]).startswith("session-cleanup:")),
+                    "trip_reminders": sum(1 for event in maintenance_events if str(event["name"]).startswith("trip-reminder-email:")),
+                    "audit_retention": sum(1 for event in maintenance_events if str(event["name"]).startswith("audit-log-retention:")),
+                },
                 "failed_email_jobs": [
                     event
                     for event in recent_events

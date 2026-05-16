@@ -67,6 +67,12 @@ def test_jobs_status_endpoint_reports_snapshot(client, monkeypatch) -> None:
             "last_error": None,
             "recent_events": [],
             "failed_email_jobs": [],
+            "maintenance_jobs": {
+                "total": 2,
+                "session_cleanup": 1,
+                "trip_reminders": 1,
+                "audit_retention": 0,
+            },
         },
     )
 
@@ -77,6 +83,8 @@ def test_jobs_status_endpoint_reports_snapshot(client, monkeypatch) -> None:
     assert body["worker_enabled"] is True
     assert body["success_total"] == 3
     assert body["retry_total"] == 1
+    assert body["maintenance_jobs"]["session_cleanup"] == 1
+    assert body["maintenance_jobs"]["trip_reminders"] == 1
 
 
 def test_job_queue_snapshot_lists_failed_email_jobs(monkeypatch) -> None:
