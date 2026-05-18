@@ -97,6 +97,14 @@ The deployment helpers are exposed under `/api/v1/deployment`:
 
 Use these endpoints to verify a release before you push it to production or roll it back after an incident.
 
+## Background Jobs
+
+The jobs status endpoint is exposed under `/api/v1/jobs`:
+
+- `GET /api/v1/jobs/status` returns worker state, queue depth, recent job events, and success/retry/failure totals
+
+Use it to check whether email, notification, and cleanup jobs are moving or backing up.
+
 ## Development Notes
 
 - `ci.db` is used in CI and local migration smoke tests

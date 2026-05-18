@@ -72,3 +72,34 @@ class EmailService:
                 verification_token=verification_token,
             )
         )
+
+    def queue_reset_password_email(
+        self,
+        *,
+        to_email: str,
+        full_name: str,
+        reset_token: str,
+        enqueue: Callable[[Callable[[], None]], None],
+    ) -> None:
+        reset_link = f"{settings.FRONTEND_URL.rstrip('/')}/reset-password?token={reset_token}"
+        text_body = (
+            f"Hi {full_name},\n\n"
+            "Reset your MooveSaathi password using the link below:\n"
+            f"{reset_link}\n\n"
+            "If you did not request a password reset, you can ignore this email."
+        )
+        html_body = (
+            f"<p>Hi {full_name},</p>"
+            "<p>Reset your MooveSaathi password using the link below:</p>"
+            f"<p><a href=\"{reset_link}\">Reset password</a></p>"
+            "<p>If you did not request a password reset, you can ignore this email.</p>"
+        )
+
+        enqueue(
+            lambda: self.send_email(
+                to_email=to_email,
+                subject="Reset your MooveSaathi password",
+                text_body=text_body,
+                html_body=html_body,
+            )
+        )

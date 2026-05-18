@@ -5,6 +5,7 @@ from datetime import timedelta
 from fastapi import HTTPException, status
 from jose import JWTError
 from sqlalchemy.orm import Session
+from sqlalchemy.orm import sessionmaker
 
 from app.api.deps import revoke_token_from_payload
 from app.core.config import settings
@@ -37,6 +38,7 @@ from app.schemas.auth import (
 )
 from app.services.email import EmailService
 from app.services.audit_log import AuditLogService
+from app.services.maintenance_jobs import enqueue_audit_log_retention, enqueue_session_cleanup
 from app.services.job_queue import Job, job_queue
 from app.services.token_store import token_store
 
@@ -47,6 +49,13 @@ class AuthService:
         self.email_service = EmailService()
         self.audit_logs = AuditLogService(db)
         self.logger = logging.getLogger(__name__)
+        self.retention_session_factory = sessionmaker(
+            bind=db.get_bind(),
+            autoflush=False,
+            autocommit=False,
+            expire_on_commit=False,
+            future=True,
+        )
 
     def register(self, payload: RegisterRequest) -> RegisterResponse:
         if self.users.get_by_email(payload.email):
@@ -132,6 +141,17 @@ class AuthService:
             )
 
         reset_token = create_reset_token(subject=str(user.id))
+        self.email_service.queue_reset_password_email(
+            to_email=user.email,
+            full_name=user.full_name,
+            reset_token=reset_token,
+            enqueue=lambda handler: job_queue.enqueue(
+                Job(
+                    name=f"send-reset-password-email:{user.id}",
+                    handler=handler,
+                )
+            ),
+        )
         response = ForgotPasswordResponse(
             message="If an account exists for that email, a reset link has been generated.",
         )
@@ -206,6 +226,8 @@ class AuthService:
             token_payload = self._decode_expected_token(access_token, expected_type="access")
             revoke_token_from_payload(token_payload)
             token_store.revoke_user_sessions(current_user.id)
+            enqueue_session_cleanup(user_id=current_user.id)
+            enqueue_audit_log_retention(session_factory=self.retention_session_factory, retention_days=90)
             self.audit_logs.record(
                 action="password_changed",
                 actor_user_id=current_user.id,

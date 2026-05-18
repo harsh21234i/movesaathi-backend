@@ -59,6 +59,65 @@ def test_register_queues_verification_email_without_waiting_on_delivery(client, 
     assert queued == ["send-verification-email:1"]
 
 
+def test_forgot_password_queues_reset_email_without_waiting_on_delivery(client, monkeypatch) -> None:
+    queued: list[str] = []
+
+    monkeypatch.setattr("app.services.auth.job_queue.enqueue", lambda job: queued.append(job.name))
+
+    response = client.post(
+        "/api/v1/auth/register",
+        json={
+            "full_name": "Reset Queue User",
+            "email": "reset-queue@example.com",
+            "password": "Password123",
+            "phone_number": "9999999999",
+            "role": "driver",
+        },
+    )
+    assert response.status_code == 201
+
+    forgot_response = client.post("/api/v1/auth/forgot-password", json={"email": "reset-queue@example.com"})
+
+    assert forgot_response.status_code == 200
+    assert queued == [
+        "send-verification-email:1",
+        "send-reset-password-email:1",
+    ]
+    assert forgot_response.json()["reset_token"]
+
+
+def test_change_password_queues_session_cleanup(client, monkeypatch) -> None:
+    queued: list[str] = []
+    monkeypatch.setattr("app.services.auth.job_queue.enqueue", lambda job: queued.append(job.name))
+
+    register_response = client.post(
+        "/api/v1/auth/register",
+        json={
+            "full_name": "Cleanup User",
+            "email": "cleanup@example.com",
+            "password": "Password123",
+            "phone_number": "1111111111",
+        },
+    )
+    assert register_response.status_code == 201
+
+    login_response = client.post(
+        "/api/v1/auth/login",
+        json={"email": "cleanup@example.com", "password": "Password123"},
+    )
+    assert login_response.status_code == 200
+    token = login_response.json()["access_token"]
+
+    change_response = client.post(
+        "/api/v1/auth/change-password",
+        headers={"Authorization": f"Bearer {token}"},
+        json={"current_password": "Password123", "new_password": "NewPassword123"},
+    )
+
+    assert change_response.status_code == 204
+    assert "session-cleanup:1" in queued
+
+
 def test_register_rejects_duplicate_email(client) -> None:
     payload = {
         "full_name": "Test User",

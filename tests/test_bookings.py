@@ -74,6 +74,35 @@ def test_booking_acceptance_reduces_available_seats(client) -> None:
     assert rides_response.json() == []
 
 
+def test_booking_acceptance_queues_trip_reminder_email(client, monkeypatch) -> None:
+    driver_headers = _register_and_login(client, name="Driver", email="driver-reminder@example.com", role="driver")
+    passenger_headers = _register_and_login(client, name="Passenger", email="passenger-reminder@example.com", role="passenger")
+    ride_id = _create_ride(client, driver_headers, seats=1)
+
+    reminder_calls: list[int] = []
+    monkeypatch.setattr(
+        "app.services.booking.enqueue_trip_reminder_email",
+        lambda booking: reminder_calls.append(booking.id),
+    )
+
+    create_booking = client.post(
+        "/api/v1/bookings",
+        headers=passenger_headers,
+        json={"ride_id": ride_id, "notes": "Need pickup"},
+    )
+    assert create_booking.status_code == 200
+    booking_id = create_booking.json()["id"]
+
+    accept_booking = client.patch(
+        f"/api/v1/bookings/{booking_id}",
+        headers=driver_headers,
+        json={"status": "accepted"},
+    )
+
+    assert accept_booking.status_code == 200
+    assert reminder_calls == [booking_id]
+
+
 def test_second_booking_cannot_be_accepted_after_seat_is_full(client) -> None:
     driver_headers = _register_and_login(client, name="Driver", email="driver-overbook@example.com", role="driver")
     passenger_one_headers = _register_and_login(client, name="Passenger One", email="passenger-overbook-1@example.com", role="passenger")

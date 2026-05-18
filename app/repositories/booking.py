@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session, joinedload
 
@@ -58,6 +60,27 @@ class BookingRepository:
         if status:
             stmt = stmt.where(Booking.status == status)
         stmt = stmt.offset(offset).limit(limit)
+        return list(self.db.scalars(stmt).unique().all())
+
+    def list_accepted_departures_within(
+        self,
+        *,
+        starts_after: datetime,
+        ends_before: datetime,
+        limit: int = 100,
+    ) -> list[Booking]:
+        stmt = (
+            select(Booking)
+            .join(Ride, Booking.ride_id == Ride.id)
+            .options(joinedload(Booking.ride), joinedload(Booking.passenger))
+            .where(
+                Booking.status == BookingStatus.accepted,
+                Ride.departure_time >= starts_after,
+                Ride.departure_time <= ends_before,
+            )
+            .order_by(Ride.departure_time.asc())
+            .limit(limit)
+        )
         return list(self.db.scalars(stmt).unique().all())
 
     def create(self, booking: Booking) -> Booking:
