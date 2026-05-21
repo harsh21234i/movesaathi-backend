@@ -1,7 +1,7 @@
 from datetime import datetime
 
 from sqlalchemy import desc, select
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy.orm import Session, joinedload, selectinload
 
 from app.models.booking import Booking
 from app.models.ride import Ride, RideLocation, RideStatus
@@ -28,7 +28,7 @@ class RideRepository:
     def get_by_id_for_update(self, ride_id: int) -> Ride | None:
         stmt = (
             select(Ride)
-            .options(joinedload(Ride.bookings))
+            .options(selectinload(Ride.bookings))
             .where(Ride.id == ride_id)
             .with_for_update()
         )
