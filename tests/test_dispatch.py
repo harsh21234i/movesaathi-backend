@@ -1,6 +1,8 @@
 from datetime import datetime, timedelta, timezone
 
 from app.models.dispatch import DriverAvailability
+from app.models.booking import Booking
+from app.models.ride import Ride
 
 
 def _register_and_login(client, *, name: str, email: str, role: str) -> dict[str, str]:
@@ -313,6 +315,50 @@ def test_request_acceptance_publishes_passenger_match_event(client, monkeypatch)
     assert passenger_events
     assert passenger_events[-1][0] == passenger_id
     assert passenger_events[-1][1]["event_type"] == "request_matched"
+
+
+def test_request_acceptance_is_single_winner(client, db_session) -> None:
+    passenger_headers = _register_and_login(client, name="Passenger", email="dispatch-single-winner-passenger@example.com", role="passenger")
+    driver_one_headers = _register_and_login(client, name="Driver One", email="dispatch-single-winner-driver-one@example.com", role="driver")
+    driver_two_headers = _register_and_login(client, name="Driver Two", email="dispatch-single-winner-driver-two@example.com", role="driver")
+    departure_time = (datetime.now(timezone.utc) + timedelta(hours=2)).isoformat()
+
+    create_response = client.post(
+        "/api/v1/dispatch/requests",
+        headers=passenger_headers,
+        json={
+            "origin": "Pune",
+            "destination": "Nagpur",
+            "origin_latitude": 18.5204,
+            "origin_longitude": 73.8567,
+            "destination_latitude": 21.1458,
+            "destination_longitude": 79.0882,
+            "requested_departure_time": departure_time,
+            "notes": "Single winner dispatch",
+        },
+    )
+    request_id = create_response.json()["id"]
+
+    client.post(
+        "/api/v1/dispatch/presence",
+        headers=driver_one_headers,
+        json={"latitude": 18.6, "longitude": 73.8, "is_online": True},
+    )
+    client.post(
+        "/api/v1/dispatch/presence",
+        headers=driver_two_headers,
+        json={"latitude": 18.6, "longitude": 73.8, "is_online": True},
+    )
+
+    first_accept = client.post(f"/api/v1/dispatch/requests/{request_id}/accept", headers=driver_one_headers)
+    assert first_accept.status_code == 200
+
+    second_accept = client.post(f"/api/v1/dispatch/requests/{request_id}/accept", headers=driver_two_headers)
+    assert second_accept.status_code == 400
+    assert second_accept.json()["detail"] == "Ride request is no longer open"
+
+    assert db_session.query(Ride).count() == 1
+    assert db_session.query(Booking).count() == 1
 
 
 def test_driver_decline_hides_request_only_for_that_driver(client) -> None:

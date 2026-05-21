@@ -214,7 +214,7 @@ class DispatchService:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Driver availability not found")
 
         try:
-            ride_request = self.dispatch.get_ride_request(request_id)
+            ride_request = self.dispatch.get_ride_request_for_update(request_id)
             if not ride_request:
                 raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ride request not found")
             if ride_request.status != RideRequestStatus.open:
