@@ -61,6 +61,12 @@ class DispatchService:
         self.dispatch.db.commit()
         return availability
 
+    def touch_driver_presence(self, driver_id: int) -> DriverAvailability | None:
+        availability = self.dispatch.touch_driver_availability(driver_id)
+        if availability:
+            self.dispatch.db.commit()
+        return availability
+
     def create_request(self, payload: dict[str, object], current_user: User) -> RideRequest:
         if current_user.role != UserRole.passenger:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only passenger accounts can request rides")
@@ -109,8 +115,8 @@ class DispatchService:
         if current_user.role != UserRole.driver:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only driver accounts can view nearby requests")
         self._expire_stale_open_requests()
-        availability = self.dispatch.get_driver_availability(current_user.id)
-        if not availability or not availability.is_online:
+        availability = self._get_fresh_driver_availability(current_user.id)
+        if not availability:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Driver availability not found")
 
         nearby: list[dict[str, object]] = []
@@ -131,8 +137,8 @@ class DispatchService:
         if current_user.role != UserRole.driver:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only driver accounts can decline ride requests")
 
-        availability = self.dispatch.get_driver_availability(current_user.id)
-        if not availability or not availability.is_online:
+        availability = self._get_fresh_driver_availability(current_user.id)
+        if not availability:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Driver availability not found")
 
         try:
@@ -203,8 +209,8 @@ class DispatchService:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only driver accounts can accept ride requests")
 
         self._expire_stale_open_requests()
-        availability = self.dispatch.get_driver_availability(current_user.id)
-        if not availability or not availability.is_online:
+        availability = self._get_fresh_driver_availability(current_user.id)
+        if not availability:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Driver availability not found")
 
         try:
@@ -297,6 +303,24 @@ class DispatchService:
         dlon = radians(lon2 - lon1)
         a = sin(dlat / 2) ** 2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(dlon / 2) ** 2
         return 2 * earth_radius_km * asin(sqrt(a))
+
+    def _get_fresh_driver_availability(self, driver_id: int) -> DriverAvailability | None:
+        availability = self.dispatch.get_driver_availability(driver_id)
+        if not availability or not availability.is_online:
+            return None
+
+        updated_at = availability.updated_at
+        if updated_at.tzinfo is None:
+            updated_at = updated_at.replace(tzinfo=timezone.utc)
+
+        if (datetime.now(timezone.utc) - updated_at).total_seconds() > settings.DISPATCH_PRESENCE_STALE_AFTER_SECONDS:
+            availability.is_online = False
+            availability.updated_at = datetime.now(timezone.utc)
+            self.dispatch.upsert_driver_availability(availability)
+            self.dispatch.db.commit()
+            return None
+
+        return availability
 
     def _expire_stale_open_requests(self) -> None:
         now = datetime.now(timezone.utc)

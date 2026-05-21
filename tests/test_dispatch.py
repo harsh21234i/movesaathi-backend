@@ -1,5 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
+from app.models.dispatch import DriverAvailability
+
 
 def _register_and_login(client, *, name: str, email: str, role: str) -> dict[str, str]:
     register_response = client.post(
@@ -362,3 +364,41 @@ def test_driver_decline_hides_request_only_for_that_driver(client) -> None:
     passenger_request = client.get("/api/v1/dispatch/requests/mine", headers=passenger_headers)
     assert passenger_request.status_code == 200
     assert passenger_request.json()[0]["status"] == "open"
+
+
+def test_stale_driver_presence_is_not_used_for_nearby_matching(client, db_session, monkeypatch) -> None:
+    passenger_headers = _register_and_login(client, name="Passenger", email="dispatch-stale-driver-passenger@example.com", role="passenger")
+    driver_headers = _register_and_login(client, name="Driver", email="dispatch-stale-driver@example.com", role="driver")
+    departure_time = (datetime.now(timezone.utc) + timedelta(hours=2)).isoformat()
+
+    monkeypatch.setattr("app.core.config.settings.DISPATCH_PRESENCE_STALE_AFTER_SECONDS", 1)
+
+    create_response = client.post(
+        "/api/v1/dispatch/requests",
+        headers=passenger_headers,
+        json={
+            "origin": "Pune",
+            "destination": "Nagpur",
+            "origin_latitude": 18.5204,
+            "origin_longitude": 73.8567,
+            "destination_latitude": 21.1458,
+            "destination_longitude": 79.0882,
+            "requested_departure_time": departure_time,
+            "notes": "Need a direct trip",
+        },
+    )
+    assert create_response.status_code == 201
+
+    presence_response = client.post(
+        "/api/v1/dispatch/presence",
+        headers=driver_headers,
+        json={"latitude": 18.6, "longitude": 73.8, "is_online": True},
+    )
+    assert presence_response.status_code == 201
+
+    availability = db_session.query(DriverAvailability).one()
+    availability.updated_at = datetime.now(timezone.utc) - timedelta(seconds=10)
+    db_session.commit()
+
+    nearby_response = client.get("/api/v1/dispatch/requests/nearby", headers=driver_headers)
+    assert nearby_response.status_code == 404

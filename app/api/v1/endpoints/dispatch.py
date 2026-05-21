@@ -109,6 +109,7 @@ def accept_request(
 @router.websocket("/ws")
 async def dispatch_socket(websocket: WebSocket, token: str) -> None:
     db = next(get_db())
+    dispatch_service = DispatchService(db)
     redis_client = redis_asyncio.from_url(
         settings.REDIS_URL,
         decode_responses=True,
@@ -154,6 +155,8 @@ async def dispatch_socket(websocket: WebSocket, token: str) -> None:
                         except json.JSONDecodeError:
                             payload = None
                         if payload and payload.get("event_type") == "ping":
+                            if user.role == UserRole.driver:
+                                dispatch_service.touch_driver_presence(user.id)
                             await websocket.send_text(json.dumps({"event_type": "pong"}))
                 except TimeoutError:
                     continue

@@ -1,4 +1,4 @@
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session, joinedload
@@ -15,6 +15,16 @@ class DispatchRepository:
         return self.db.scalar(stmt)
 
     def upsert_driver_availability(self, availability: DriverAvailability) -> DriverAvailability:
+        self.db.add(availability)
+        self.db.flush()
+        self.db.refresh(availability)
+        return availability
+
+    def touch_driver_availability(self, driver_id: int) -> DriverAvailability | None:
+        availability = self.get_driver_availability(driver_id)
+        if not availability:
+            return None
+        availability.updated_at = datetime.now(timezone.utc)
         self.db.add(availability)
         self.db.flush()
         self.db.refresh(availability)
