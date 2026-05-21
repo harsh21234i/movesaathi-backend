@@ -23,6 +23,8 @@ def test_readiness_endpoint_reports_dependency_statuses(client, monkeypatch) -> 
             "database": {"status": "ok", "detail": "ok"},
             "redis": {"status": "ok", "detail": "ok"},
         },
+        "dependencies": {"database": True, "redis": True},
+        "generated_at": "2026-05-16T00:00:00+00:00",
     }, True))
 
     response = client.get("/health/ready")
@@ -32,6 +34,8 @@ def test_readiness_endpoint_reports_dependency_statuses(client, monkeypatch) -> 
     assert body["status"] == "ok"
     assert body["checks"]["database"]["status"] == "ok"
     assert body["checks"]["redis"]["status"] == "ok"
+    assert body["dependencies"] == {"database": True, "redis": True}
+    assert body["generated_at"]
 
 
 def test_readiness_endpoint_returns_503_when_dependency_is_unavailable(client, monkeypatch) -> None:
@@ -43,9 +47,12 @@ def test_readiness_endpoint_returns_503_when_dependency_is_unavailable(client, m
             "database": {"status": "ok", "detail": "ok"},
             "redis": {"status": "error", "detail": "redis unavailable"},
         },
+        "dependencies": {"database": True, "redis": False},
+        "generated_at": "2026-05-16T00:00:00+00:00",
     }, False))
 
     response = client.get("/health/ready")
 
     assert response.status_code == 503
     assert response.json()["checks"]["redis"]["status"] == "error"
+    assert response.json()["dependencies"] == {"database": True, "redis": False}
