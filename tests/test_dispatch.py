@@ -448,6 +448,34 @@ def test_cancelled_request_creates_dispatch_notification(client) -> None:
     assert notifications.json()["items"][0]["type"] == "dispatch_cancelled"
 
 
+def test_dispatch_metrics_capture_request_lifecycle(client) -> None:
+    passenger_headers = _register_and_login(client, name="Passenger", email="dispatch-metrics-passenger@example.com", role="passenger")
+    departure_time = (datetime.now(timezone.utc) + timedelta(hours=2)).isoformat()
+
+    request_response = client.post(
+        "/api/v1/dispatch/requests",
+        headers=passenger_headers,
+        json={
+            "origin": "Pune",
+            "destination": "Nagpur",
+            "origin_latitude": 18.5204,
+            "origin_longitude": 73.8567,
+            "destination_latitude": 21.1458,
+            "destination_longitude": 79.0882,
+            "requested_departure_time": departure_time,
+            "notes": "Observe lifecycle",
+        },
+    )
+    request_id = request_response.json()["id"]
+
+    cancel_response = client.post(f"/api/v1/dispatch/requests/{request_id}/cancel", headers=passenger_headers)
+    assert cancel_response.status_code == 200
+
+    metrics_body = client.get("/metrics").text
+    assert 'moovesaathi_dispatch_total{event="request_created",outcome="success"} 1' in metrics_body
+    assert 'moovesaathi_dispatch_total{event="request_cancelled",outcome="success"} 1' in metrics_body
+
+
 def test_stale_driver_presence_is_not_used_for_nearby_matching(client, db_session, monkeypatch) -> None:
     passenger_headers = _register_and_login(client, name="Passenger", email="dispatch-stale-driver-passenger@example.com", role="passenger")
     driver_headers = _register_and_login(client, name="Driver", email="dispatch-stale-driver@example.com", role="driver")

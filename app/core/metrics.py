@@ -12,6 +12,7 @@ class MetricsRegistry:
         self._request_duration_count: Counter[tuple[str, str]] = Counter()
         self._job_total: Counter[tuple[str, str]] = Counter()
         self._exception_total: Counter[str] = Counter()
+        self._dispatch_total: Counter[tuple[str, str]] = Counter()
 
     @staticmethod
     def _normalize_path(path: str) -> str:
@@ -38,6 +39,10 @@ class MetricsRegistry:
         with self._lock:
             self._exception_total[code] += 1
 
+    def record_dispatch(self, *, event: str, outcome: str = "success", count: int = 1) -> None:
+        with self._lock:
+            self._dispatch_total[(event, outcome)] += count
+
     def reset(self) -> None:
         with self._lock:
             self._request_total.clear()
@@ -45,6 +50,7 @@ class MetricsRegistry:
             self._request_duration_count.clear()
             self._job_total.clear()
             self._exception_total.clear()
+            self._dispatch_total.clear()
 
     def render_prometheus(self) -> str:
         lines: list[str] = [
@@ -96,6 +102,15 @@ class MetricsRegistry:
             )
             for code, value in sorted(self._exception_total.items()):
                 lines.append(f'moovesaathi_exceptions_total{{code="{code}"}} {value}')
+
+            lines.extend(
+                [
+                    "# HELP moovesaathi_dispatch_total Total dispatch lifecycle and cleanup events.",
+                    "# TYPE moovesaathi_dispatch_total counter",
+                ]
+            )
+            for (event, outcome), value in sorted(self._dispatch_total.items()):
+                lines.append(f'moovesaathi_dispatch_total{{event="{event}",outcome="{outcome}"}} {value}')
 
         return "\n".join(lines) + "\n"
 

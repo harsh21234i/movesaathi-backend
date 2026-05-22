@@ -9,6 +9,7 @@ from redis.exceptions import RedisError
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import settings
+from app.core.metrics import metrics
 from app.models.booking import Booking, BookingStatus
 from app.models.dispatch import DriverAvailability, DriverRequestDismissal, RideRequest, RideRequestStatus
 from app.models.notification import NotificationType
@@ -108,6 +109,11 @@ class DispatchService:
                 entity_id=str(saved_request.id),
                 metadata={"origin": saved_request.origin, "destination": saved_request.destination},
             )
+            self._record_dispatch_event(
+                action="request_created",
+                ride_request_id=saved_request.id,
+                passenger_id=saved_request.passenger_id,
+            )
             self._publish_nearby_request_created(saved_request)
             return saved_request
         except Exception:
@@ -168,6 +174,11 @@ class DispatchService:
                     "reason": "declined",
                 },
             )
+            self._record_dispatch_event(
+                action="request_declined",
+                ride_request_id=request_id,
+                driver_id=current_user.id,
+            )
             return {
                 "request_id": request_id,
                 "driver_id": current_user.id,
@@ -213,6 +224,11 @@ class DispatchService:
                 notification_type=NotificationType.dispatch_cancelled,
                 title="Ride request cancelled",
                 body=f"Your request from {saved_request.origin} to {saved_request.destination} was cancelled.",
+            )
+            self._record_dispatch_event(
+                action="request_cancelled",
+                ride_request_id=saved_request.id,
+                passenger_id=current_user.id,
             )
             return saved_request
         except Exception:
@@ -314,6 +330,14 @@ class DispatchService:
                 title="Request accepted",
                 body=f"You matched a request from {ride_request.origin} to {ride_request.destination}.",
             )
+            self._record_dispatch_event(
+                action="request_matched",
+                ride_request_id=ride_request.id,
+                driver_id=current_user.id,
+                passenger_id=ride_request.passenger_id,
+                ride_id=saved_ride.id,
+                booking_id=saved_booking.id,
+            )
             return {
                 "request": ride_request,
                 "ride_id": saved_ride.id,
@@ -372,20 +396,28 @@ class DispatchService:
                 title="Ride request expired",
                 body=f"Your request from {ride_request.origin} to {ride_request.destination} expired before a driver accepted it.",
             )
+            self._record_dispatch_event(
+                action="request_expired",
+                ride_request_id=ride_request.id,
+                passenger_id=ride_request.passenger_id,
+            )
 
         self.dispatch.db.commit()
+        self._record_dispatch_event(action="cleanup_request_expiry", cleanup_count=len(expired_requests))
         return len(expired_requests)
 
     def cleanup_driver_request_dismissals(self, *, retention_days: int) -> int:
         cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
         deleted = self.dispatch.delete_driver_request_dismissals_older_than(before=cutoff)
         self.dispatch.db.commit()
+        self._record_dispatch_event(action="cleanup_dismissals", cleanup_count=deleted)
         return deleted
 
     def cleanup_stale_driver_availability(self, *, retention_hours: int) -> int:
         cutoff = datetime.now(timezone.utc) - timedelta(hours=retention_hours)
         deleted = self.dispatch.delete_driver_availability_older_than(before=cutoff)
         self.dispatch.db.commit()
+        self._record_dispatch_event(action="cleanup_presence", cleanup_count=deleted)
         return deleted
 
     def _expire_stale_open_requests(self) -> None:
@@ -476,6 +508,36 @@ class DispatchService:
             notification_type=notification_type,
             title=title,
             body=body,
+        )
+
+    def _record_dispatch_event(
+        self,
+        *,
+        action: str,
+        ride_request_id: int | None = None,
+        driver_id: int | None = None,
+        passenger_id: int | None = None,
+        ride_id: int | None = None,
+        booking_id: int | None = None,
+        cleanup_count: int | None = None,
+        outcome: str = "success",
+    ) -> None:
+        increment = cleanup_count if cleanup_count and cleanup_count > 0 else 1
+        metrics.record_dispatch(event=action, outcome=outcome, count=increment)
+        self.logger.info(
+            "dispatch action=%s outcome=%s",
+            action,
+            outcome,
+            extra={
+                "action": action,
+                "outcome": outcome,
+                "ride_request_id": ride_request_id,
+                "driver_id": driver_id,
+                "passenger_id": passenger_id,
+                "ride_id": ride_id,
+                "booking_id": booking_id,
+                "cleanup_count": cleanup_count,
+            },
         )
 
     def _publish(self, channel: str, payload: dict[str, object]) -> None:
