@@ -106,6 +106,11 @@ class JobQueue:
                 for event in recent_events
                 if event["name"].startswith(("session-cleanup:", "trip-reminder-email:", "audit-log-retention:"))
             ]
+            dispatch_notification_events = [
+                event
+                for event in recent_events
+                if str(event["name"]).startswith("dispatch-notification:")
+            ]
             return {
                 "worker_enabled": settings.JOB_WORKER_ENABLED,
                 "synchronous": settings.JOBS_SYNCHRONOUS,
@@ -124,10 +129,22 @@ class JobQueue:
                     "trip_reminders": sum(1 for event in maintenance_events if str(event["name"]).startswith("trip-reminder-email:")),
                     "audit_retention": sum(1 for event in maintenance_events if str(event["name"]).startswith("audit-log-retention:")),
                 },
+                "dispatch_notification_jobs": {
+                    "total": len(dispatch_notification_events),
+                    "matched": sum(1 for event in dispatch_notification_events if str(event["name"]).endswith(":dispatch_matched")),
+                    "cancelled": sum(1 for event in dispatch_notification_events if str(event["name"]).endswith(":dispatch_cancelled")),
+                    "expired": sum(1 for event in dispatch_notification_events if str(event["name"]).endswith(":dispatch_expired")),
+                    "retrying": sum(1 for event in dispatch_notification_events if event["status"] == "retry"),
+                },
                 "failed_email_jobs": [
                     event
                     for event in recent_events
                     if event["status"] == "failed" and str(event["name"]).startswith("send-")
+                ],
+                "failed_dispatch_notification_jobs": [
+                    event
+                    for event in dispatch_notification_events
+                    if event["status"] == "failed"
                 ],
             }
 

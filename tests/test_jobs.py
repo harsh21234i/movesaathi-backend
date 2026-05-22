@@ -67,11 +67,19 @@ def test_jobs_status_endpoint_reports_snapshot(client, monkeypatch) -> None:
             "last_error": None,
             "recent_events": [],
             "failed_email_jobs": [],
+            "failed_dispatch_notification_jobs": [],
             "maintenance_jobs": {
                 "total": 2,
                 "session_cleanup": 1,
                 "trip_reminders": 1,
                 "audit_retention": 0,
+            },
+            "dispatch_notification_jobs": {
+                "total": 1,
+                "matched": 1,
+                "cancelled": 0,
+                "expired": 0,
+                "retrying": 0,
             },
         },
     )
@@ -85,6 +93,7 @@ def test_jobs_status_endpoint_reports_snapshot(client, monkeypatch) -> None:
     assert body["retry_total"] == 1
     assert body["maintenance_jobs"]["session_cleanup"] == 1
     assert body["maintenance_jobs"]["trip_reminders"] == 1
+    assert body["dispatch_notification_jobs"]["matched"] == 1
 
 
 def test_job_queue_snapshot_lists_failed_email_jobs(monkeypatch) -> None:
@@ -100,3 +109,40 @@ def test_job_queue_snapshot_lists_failed_email_jobs(monkeypatch) -> None:
     assert snapshot["failed_total"] == 1
     assert len(snapshot["failed_email_jobs"]) == 1
     assert snapshot["failed_email_jobs"][0]["name"] == "send-reset-password-email:7"
+
+
+def test_job_queue_snapshot_lists_failed_dispatch_notification_jobs(monkeypatch) -> None:
+    job_queue.reset()
+    monkeypatch.setattr("app.services.job_queue.settings.JOBS_SYNCHRONOUS", True)
+
+    def handler() -> None:
+        raise RuntimeError("dispatch notification failed")
+
+    job_queue.enqueue(Job(name="dispatch-notification:7:dispatch_matched", handler=handler, max_retries=0))
+
+    snapshot = job_queue.snapshot()
+    assert snapshot["failed_total"] == 1
+    assert snapshot["dispatch_notification_jobs"]["matched"] >= 1
+    assert len(snapshot["failed_dispatch_notification_jobs"]) == 1
+    assert snapshot["failed_dispatch_notification_jobs"][0]["name"] == "dispatch-notification:7:dispatch_matched"
+
+
+def test_job_queue_snapshot_tracks_dispatch_notification_retries(monkeypatch) -> None:
+    job_queue.reset()
+    monkeypatch.setattr("app.services.job_queue.settings.JOBS_SYNCHRONOUS", True)
+    monkeypatch.setattr("app.services.job_queue.settings.JOB_WORKER_RETRY_DELAY_SECONDS", 0)
+
+    attempts = {"count": 0}
+
+    def handler() -> None:
+        attempts["count"] += 1
+        if attempts["count"] < 2:
+            raise RuntimeError("retry dispatch notification")
+
+    job_queue.enqueue(Job(name="dispatch-notification:9:dispatch_expired", handler=handler, max_retries=2))
+
+    snapshot = job_queue.snapshot()
+    assert attempts["count"] == 2
+    assert snapshot["retry_total"] == 1
+    assert snapshot["dispatch_notification_jobs"]["expired"] >= 1
+    assert snapshot["dispatch_notification_jobs"]["retrying"] >= 1

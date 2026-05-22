@@ -50,6 +50,10 @@ class DispatchRepository:
         )
         return self.db.scalar(stmt)
 
+    def get_ride_request_for_update(self, request_id: int) -> RideRequest | None:
+        stmt = select(RideRequest).where(RideRequest.id == request_id).with_for_update()
+        return self.db.scalar(stmt)
+
     def get_open_request_for_passenger(self, passenger_id: int) -> RideRequest | None:
         stmt = (
             select(RideRequest)

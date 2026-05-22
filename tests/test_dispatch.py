@@ -1,6 +1,8 @@
 from datetime import datetime, timedelta, timezone
 
 from app.models.dispatch import DriverAvailability
+from app.models.booking import Booking
+from app.models.ride import Ride
 
 
 def _register_and_login(client, *, name: str, email: str, role: str) -> dict[str, str]:
@@ -314,6 +316,58 @@ def test_request_acceptance_publishes_passenger_match_event(client, monkeypatch)
     assert passenger_events[-1][0] == passenger_id
     assert passenger_events[-1][1]["event_type"] == "request_matched"
 
+    passenger_notifications = client.get("/api/v1/notifications", headers=passenger_headers)
+    assert passenger_notifications.status_code == 200
+    assert passenger_notifications.json()["items"][0]["type"] == "dispatch_matched"
+
+    driver_notifications = client.get("/api/v1/notifications", headers=driver_headers)
+    assert driver_notifications.status_code == 200
+    assert driver_notifications.json()["items"][0]["type"] == "dispatch_matched"
+
+
+def test_request_acceptance_is_single_winner(client, db_session) -> None:
+    passenger_headers = _register_and_login(client, name="Passenger", email="dispatch-single-winner-passenger@example.com", role="passenger")
+    driver_one_headers = _register_and_login(client, name="Driver One", email="dispatch-single-winner-driver-one@example.com", role="driver")
+    driver_two_headers = _register_and_login(client, name="Driver Two", email="dispatch-single-winner-driver-two@example.com", role="driver")
+    departure_time = (datetime.now(timezone.utc) + timedelta(hours=2)).isoformat()
+
+    create_response = client.post(
+        "/api/v1/dispatch/requests",
+        headers=passenger_headers,
+        json={
+            "origin": "Pune",
+            "destination": "Nagpur",
+            "origin_latitude": 18.5204,
+            "origin_longitude": 73.8567,
+            "destination_latitude": 21.1458,
+            "destination_longitude": 79.0882,
+            "requested_departure_time": departure_time,
+            "notes": "Single winner dispatch",
+        },
+    )
+    request_id = create_response.json()["id"]
+
+    client.post(
+        "/api/v1/dispatch/presence",
+        headers=driver_one_headers,
+        json={"latitude": 18.6, "longitude": 73.8, "is_online": True},
+    )
+    client.post(
+        "/api/v1/dispatch/presence",
+        headers=driver_two_headers,
+        json={"latitude": 18.6, "longitude": 73.8, "is_online": True},
+    )
+
+    first_accept = client.post(f"/api/v1/dispatch/requests/{request_id}/accept", headers=driver_one_headers)
+    assert first_accept.status_code == 200
+
+    second_accept = client.post(f"/api/v1/dispatch/requests/{request_id}/accept", headers=driver_two_headers)
+    assert second_accept.status_code == 400
+    assert second_accept.json()["detail"] == "Ride request is no longer open"
+
+    assert db_session.query(Ride).count() == 1
+    assert db_session.query(Booking).count() == 1
+
 
 def test_driver_decline_hides_request_only_for_that_driver(client) -> None:
     passenger_headers = _register_and_login(client, name="Passenger", email="dispatch-decline-passenger@example.com", role="passenger")
@@ -366,6 +420,34 @@ def test_driver_decline_hides_request_only_for_that_driver(client) -> None:
     assert passenger_request.json()[0]["status"] == "open"
 
 
+def test_cancelled_request_creates_dispatch_notification(client) -> None:
+    passenger_headers = _register_and_login(client, name="Passenger", email="dispatch-notify-cancel-passenger@example.com", role="passenger")
+    departure_time = (datetime.now(timezone.utc) + timedelta(hours=2)).isoformat()
+
+    request_response = client.post(
+        "/api/v1/dispatch/requests",
+        headers=passenger_headers,
+        json={
+            "origin": "Pune",
+            "destination": "Nagpur",
+            "origin_latitude": 18.5204,
+            "origin_longitude": 73.8567,
+            "destination_latitude": 21.1458,
+            "destination_longitude": 79.0882,
+            "requested_departure_time": departure_time,
+            "notes": "Cancel and notify",
+        },
+    )
+    request_id = request_response.json()["id"]
+
+    cancel_response = client.post(f"/api/v1/dispatch/requests/{request_id}/cancel", headers=passenger_headers)
+    assert cancel_response.status_code == 200
+
+    notifications = client.get("/api/v1/notifications", headers=passenger_headers)
+    assert notifications.status_code == 200
+    assert notifications.json()["items"][0]["type"] == "dispatch_cancelled"
+
+
 def test_stale_driver_presence_is_not_used_for_nearby_matching(client, db_session, monkeypatch) -> None:
     passenger_headers = _register_and_login(client, name="Passenger", email="dispatch-stale-driver-passenger@example.com", role="passenger")
     driver_headers = _register_and_login(client, name="Driver", email="dispatch-stale-driver@example.com", role="driver")
@@ -402,3 +484,32 @@ def test_stale_driver_presence_is_not_used_for_nearby_matching(client, db_sessio
 
     nearby_response = client.get("/api/v1/dispatch/requests/nearby", headers=driver_headers)
     assert nearby_response.status_code == 404
+
+
+def test_expired_request_creates_dispatch_notification(client) -> None:
+    passenger_headers = _register_and_login(client, name="Passenger", email="dispatch-expired-notify-passenger@example.com", role="passenger")
+    departure_time = (datetime.now(timezone.utc) - timedelta(minutes=5)).isoformat()
+
+    create_response = client.post(
+        "/api/v1/dispatch/requests",
+        headers=passenger_headers,
+        json={
+            "origin": "Pune",
+            "destination": "Nagpur",
+            "origin_latitude": 18.5204,
+            "origin_longitude": 73.8567,
+            "destination_latitude": 21.1458,
+            "destination_longitude": 79.0882,
+            "requested_departure_time": departure_time,
+            "notes": "Expire and notify",
+        },
+    )
+    assert create_response.status_code == 201
+
+    mine_response = client.get("/api/v1/dispatch/requests/mine", headers=passenger_headers)
+    assert mine_response.status_code == 200
+    assert mine_response.json()[0]["status"] == "expired"
+
+    notifications = client.get("/api/v1/notifications", headers=passenger_headers)
+    assert notifications.status_code == 200
+    assert notifications.json()["items"][0]["type"] == "dispatch_expired"
