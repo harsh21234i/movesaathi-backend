@@ -154,6 +154,47 @@ def test_driver_can_update_and_cancel_ride(client) -> None:
     assert detail_response.json()["status"] == "cancelled"
 
 
+def test_driver_can_cancel_ride_with_bookings(client) -> None:
+    driver_headers = _register_and_login(client, name="Driver", email="ride-cancel-bookings@example.com", role="driver")
+    passenger_headers = _register_and_login(client, name="Passenger", email="ride-cancel-bookings-passenger@example.com", role="passenger")
+    departure_time = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
+
+    create_ride = client.post(
+        "/api/v1/rides",
+        headers=driver_headers,
+        json={
+            "origin": "Pune",
+            "destination": "Nagpur",
+            "departure_time": departure_time,
+            "available_seats": 2,
+            "price_per_seat": 100,
+            "vehicle_details": "Sedan",
+            "notes": "Morning ride",
+        },
+    )
+    assert create_ride.status_code == 201
+    ride_id = create_ride.json()["id"]
+
+    create_booking = client.post(
+        "/api/v1/bookings",
+        headers=passenger_headers,
+        json={"ride_id": ride_id, "notes": "Window seat"},
+    )
+    assert create_booking.status_code == 200
+
+    cancel_response = client.delete(f"/api/v1/rides/{ride_id}", headers=driver_headers)
+    assert cancel_response.status_code == 204
+
+    ride_detail = client.get(f"/api/v1/rides/{ride_id}", headers=driver_headers)
+    assert ride_detail.status_code == 200
+    assert ride_detail.json()["status"] == "cancelled"
+    assert ride_detail.json()["is_active"] is False
+
+    booking_detail = client.get(f"/api/v1/bookings/{create_booking.json()['id']}", headers=passenger_headers)
+    assert booking_detail.status_code == 200
+    assert booking_detail.json()["status"] == "cancelled_by_driver"
+
+
 def test_driver_can_complete_ride_and_passenger_booking_completes(client) -> None:
     driver_headers = _register_and_login(client, name="Driver", email="ride-complete@example.com", role="driver")
     passenger_headers = _register_and_login(client, name="Passenger", email="ride-complete-passenger@example.com", role="passenger")

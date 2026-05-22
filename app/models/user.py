@@ -35,3 +35,4 @@ class User(Base):
     notifications = relationship("Notification", back_populates="recipient", cascade="all, delete-orphan")
     reviews_given = relationship("Review", foreign_keys="Review.reviewer_id", back_populates="reviewer")
     reviews_received = relationship("Review", foreign_keys="Review.reviewee_id", back_populates="reviewee")
+    availability = relationship("DriverAvailability", back_populates="driver", uselist=False, cascade="all, delete-orphan")
