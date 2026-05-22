@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import desc, select
+from sqlalchemy import delete, desc, select
 from sqlalchemy.orm import Session, joinedload
 
 from app.models.dispatch import DriverAvailability, DriverRequestDismissal, RideRequest, RideRequestStatus
@@ -106,6 +106,19 @@ class DispatchRepository:
             stmt = stmt.where(~RideRequest.id.in_(dismissed_ids_stmt))
         return list(self.db.scalars(stmt).unique().all())
 
+    def list_expirable_open_requests(self, *, before: datetime, limit: int = 500) -> list[RideRequest]:
+        stmt = (
+            select(RideRequest)
+            .options(joinedload(RideRequest.passenger))
+            .where(
+                RideRequest.status == RideRequestStatus.open,
+                RideRequest.requested_departure_time < before,
+            )
+            .order_by(desc(RideRequest.requested_departure_time))
+            .limit(limit)
+        )
+        return list(self.db.scalars(stmt).unique().all())
+
     def create_driver_request_dismissal(self, dismissal: DriverRequestDismissal) -> DriverRequestDismissal:
         self.db.add(dismissal)
         self.db.flush()
@@ -118,3 +131,11 @@ class DispatchRepository:
             DriverRequestDismissal.request_id == request_id,
         )
         return self.db.scalar(stmt)
+
+    def delete_driver_request_dismissals_older_than(self, *, before: datetime) -> int:
+        stmt = delete(DriverRequestDismissal).where(DriverRequestDismissal.dismissed_at < before)
+        return self.db.execute(stmt).rowcount or 0
+
+    def delete_driver_availability_older_than(self, *, before: datetime) -> int:
+        stmt = delete(DriverAvailability).where(DriverAvailability.updated_at < before)
+        return self.db.execute(stmt).rowcount or 0

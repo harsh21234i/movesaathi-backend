@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from math import asin, cos, radians, sin, sqrt
 
 from fastapi import HTTPException, status
@@ -349,34 +349,47 @@ class DispatchService:
 
         return availability
 
-    def _expire_stale_open_requests(self) -> None:
+    def expire_stale_open_requests(self, *, limit: int = 500) -> int:
         now = datetime.now(timezone.utc)
-        expired_any = False
-        for ride_request in self.dispatch.list_open_requests(limit=500):
-            departure_time = ride_request.requested_departure_time
-            if departure_time.tzinfo is None:
-                departure_time = departure_time.replace(tzinfo=timezone.utc)
-            if departure_time < now:
-                ride_request.status = RideRequestStatus.expired
-                self.dispatch.save_ride_request(ride_request)
-                self._publish_nearby_request_removed(ride_request, reason="expired")
-                self._publish_passenger_event(
-                    ride_request.passenger_id,
-                    {
-                        "event_type": "request_expired",
-                        "request": self._serialize_request(ride_request),
-                    },
-                )
-                self._enqueue_dispatch_notification(
-                    recipient_id=ride_request.passenger_id,
-                    notification_type=NotificationType.dispatch_expired,
-                    title="Ride request expired",
-                    body=f"Your request from {ride_request.origin} to {ride_request.destination} expired before a driver accepted it.",
-                )
-                expired_any = True
+        expired_requests = self.dispatch.list_expirable_open_requests(before=now, limit=limit)
+        if not expired_requests:
+            return 0
 
-        if expired_any:
-            self.dispatch.db.commit()
+        for ride_request in expired_requests:
+            ride_request.status = RideRequestStatus.expired
+            self.dispatch.save_ride_request(ride_request)
+            self._publish_nearby_request_removed(ride_request, reason="expired")
+            self._publish_passenger_event(
+                ride_request.passenger_id,
+                {
+                    "event_type": "request_expired",
+                    "request": self._serialize_request(ride_request),
+                },
+            )
+            self._enqueue_dispatch_notification(
+                recipient_id=ride_request.passenger_id,
+                notification_type=NotificationType.dispatch_expired,
+                title="Ride request expired",
+                body=f"Your request from {ride_request.origin} to {ride_request.destination} expired before a driver accepted it.",
+            )
+
+        self.dispatch.db.commit()
+        return len(expired_requests)
+
+    def cleanup_driver_request_dismissals(self, *, retention_days: int) -> int:
+        cutoff = datetime.now(timezone.utc) - timedelta(days=retention_days)
+        deleted = self.dispatch.delete_driver_request_dismissals_older_than(before=cutoff)
+        self.dispatch.db.commit()
+        return deleted
+
+    def cleanup_stale_driver_availability(self, *, retention_hours: int) -> int:
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=retention_hours)
+        deleted = self.dispatch.delete_driver_availability_older_than(before=cutoff)
+        self.dispatch.db.commit()
+        return deleted
+
+    def _expire_stale_open_requests(self) -> None:
+        self.expire_stale_open_requests()
 
     def _serialize_request(self, ride_request: RideRequest) -> dict[str, object]:
         return {
