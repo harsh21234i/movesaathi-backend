@@ -20,6 +20,14 @@ def test_json_formatter_includes_context_fields() -> None:
     record.path = "/health"
     record.status_code = 200
     record.duration_ms = 1.23
+    record.action = "request_matched"
+    record.outcome = "success"
+    record.ride_request_id = 8
+    record.driver_id = 2
+    record.passenger_id = 3
+    record.ride_id = 4
+    record.booking_id = 5
+    record.cleanup_count = 1
 
     payload = json.loads(JsonFormatter().format(record))
 
@@ -30,6 +38,14 @@ def test_json_formatter_includes_context_fields() -> None:
     assert payload["path"] == "/health"
     assert payload["status_code"] == 200
     assert payload["duration_ms"] == 1.23
+    assert payload["action"] == "request_matched"
+    assert payload["outcome"] == "success"
+    assert payload["ride_request_id"] == 8
+    assert payload["driver_id"] == 2
+    assert payload["passenger_id"] == 3
+    assert payload["ride_id"] == 4
+    assert payload["booking_id"] == 5
+    assert payload["cleanup_count"] == 1
 
 
 def test_job_queue_logs_job_id(monkeypatch) -> None:
