@@ -13,6 +13,7 @@ __all__ = [
     "Base",
     "User",
     "Ride",
+    "RideLocation",
     "Booking",
     "Message",
     "Notification",

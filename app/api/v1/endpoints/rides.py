@@ -11,6 +11,7 @@ from app.models.ride import RideStatus
 from app.models.user import User
 from app.schemas.ride import (
     RideCreate,
+    RideLocationAccessResponse,
     RideDetailResponse,
     RideLocationCreate,
     RideLocationResponse,
@@ -173,6 +174,15 @@ def list_ride_location_history(
     current_user: User = Depends(get_current_user),
 ) -> list[RideLocationResponse]:
     return RideService(db).list_location_history(ride_id, current_user, limit=limit)
+
+
+@router.get("/{ride_id}/location/access", response_model=RideLocationAccessResponse)
+def get_ride_location_access(
+    ride_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> RideLocationAccessResponse:
+    return RideService(db).get_location_access(ride_id, current_user)
 
 
 @router.get("", response_model=list[RideResponse])

@@ -98,3 +98,11 @@ class RideLocationResponse(BaseModel):
     created_at: datetime
     age_seconds: int
     is_stale: bool
+
+
+class RideLocationAccessResponse(BaseModel):
+    ride_id: int
+    can_track: bool
+    reason: str | None
+    tracking_starts_at: datetime | None
+    tracking_ends_at: datetime | None
