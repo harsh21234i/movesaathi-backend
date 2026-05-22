@@ -6,17 +6,19 @@ import json
 import logging
 from redis import Redis
 from redis.exceptions import RedisError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 from app.core.config import settings
 from app.models.booking import Booking, BookingStatus
 from app.models.dispatch import DriverAvailability, DriverRequestDismissal, RideRequest, RideRequestStatus
+from app.models.notification import NotificationType
 from app.models.ride import Ride, RideStatus
 from app.models.user import User, UserRole
 from app.repositories.booking import BookingRepository
 from app.repositories.dispatch import DispatchRepository
 from app.repositories.ride import RideRepository
 from app.services.audit_log import AuditLogService
+from app.services.notification_jobs import enqueue_dispatch_notification
 
 
 class DispatchService:
@@ -27,6 +29,13 @@ class DispatchService:
         self.audit_logs = AuditLogService(db)
         self.redis = self._create_redis_client()
         self.logger = logging.getLogger(__name__)
+        self.notification_session_factory = sessionmaker(
+            bind=db.get_bind(),
+            autoflush=False,
+            autocommit=False,
+            expire_on_commit=False,
+            future=True,
+        )
 
     def _create_redis_client(self) -> Redis:
         return Redis.from_url(
@@ -199,6 +208,12 @@ class DispatchService:
                     "request": self._serialize_request(saved_request),
                 },
             )
+            self._enqueue_dispatch_notification(
+                recipient_id=current_user.id,
+                notification_type=NotificationType.dispatch_cancelled,
+                title="Ride request cancelled",
+                body=f"Your request from {saved_request.origin} to {saved_request.destination} was cancelled.",
+            )
             return saved_request
         except Exception:
             self.dispatch.db.rollback()
@@ -287,6 +302,18 @@ class DispatchService:
                     "estimated_price_per_seat": estimated_price,
                 },
             )
+            self._enqueue_dispatch_notification(
+                recipient_id=ride_request.passenger_id,
+                notification_type=NotificationType.dispatch_matched,
+                title="Driver matched",
+                body=f"{current_user.full_name} accepted your request from {ride_request.origin} to {ride_request.destination}.",
+            )
+            self._enqueue_dispatch_notification(
+                recipient_id=current_user.id,
+                notification_type=NotificationType.dispatch_matched,
+                title="Request accepted",
+                body=f"You matched a request from {ride_request.origin} to {ride_request.destination}.",
+            )
             return {
                 "request": ride_request,
                 "ride_id": saved_ride.id,
@@ -339,6 +366,12 @@ class DispatchService:
                         "event_type": "request_expired",
                         "request": self._serialize_request(ride_request),
                     },
+                )
+                self._enqueue_dispatch_notification(
+                    recipient_id=ride_request.passenger_id,
+                    notification_type=NotificationType.dispatch_expired,
+                    title="Ride request expired",
+                    body=f"Your request from {ride_request.origin} to {ride_request.destination} expired before a driver accepted it.",
                 )
                 expired_any = True
 
@@ -415,6 +448,22 @@ class DispatchService:
 
     def _publish_passenger_event(self, passenger_id: int, payload: dict[str, object]) -> None:
         self._publish(f"dispatch:passenger:{passenger_id}", payload)
+
+    def _enqueue_dispatch_notification(
+        self,
+        *,
+        recipient_id: int,
+        notification_type: NotificationType,
+        title: str,
+        body: str,
+    ) -> None:
+        enqueue_dispatch_notification(
+            session_factory=self.notification_session_factory,
+            recipient_id=recipient_id,
+            notification_type=notification_type,
+            title=title,
+            body=body,
+        )
 
     def _publish(self, channel: str, payload: dict[str, object]) -> None:
         message = json.dumps(payload)

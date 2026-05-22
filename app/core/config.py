@@ -61,6 +61,7 @@ class Settings(BaseSettings):
     JOB_WORKER_ENABLED: bool = True
     JOB_WORKER_MAX_RETRIES: int = 3
     JOB_WORKER_RETRY_DELAY_SECONDS: float = 0.2
+    DISPATCH_NOTIFICATION_MAX_RETRIES: int = 4
     JOBS_SYNCHRONOUS: bool = False
     DATABASE_URL: str = "postgresql+psycopg://postgres:postgres@db:5432/moovesaathi"
     REDIS_URL: str = "redis://redis:6379/0"

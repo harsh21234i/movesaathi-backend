@@ -14,6 +14,9 @@ class NotificationType(str, Enum):
     booking_cancelled = "booking_cancelled"
     booking_completed = "booking_completed"
     ride_cancelled = "ride_cancelled"
+    dispatch_matched = "dispatch_matched"
+    dispatch_cancelled = "dispatch_cancelled"
+    dispatch_expired = "dispatch_expired"
 
 
 class Notification(Base):
