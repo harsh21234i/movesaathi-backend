@@ -8,4 +8,16 @@ from app.models.review import Review
 from app.models.ride import Ride, RideLocation
 from app.models.user import User
 
-__all__ = ["Base", "User", "Ride", "Booking", "Message", "Notification", "Review", "AuditLog", "Payment", "PaymentEvent"]
+__all__ = [
+    "Base",
+    "User",
+    "Ride",
+    "RideLocation",
+    "Booking",
+    "Message",
+    "Notification",
+    "Review",
+    "AuditLog",
+    "Payment",
+    "PaymentEvent",
+]

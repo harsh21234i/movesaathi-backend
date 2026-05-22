@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+from math import cos, radians, sqrt
 
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
@@ -12,7 +13,7 @@ from app.models.ride import RideStatus
 from app.models.user import User, UserRole
 from app.services.audit_log import AuditLogService
 from app.repositories.ride import RideRepository
-from app.schemas.ride import RideCreate, RideLocationCreate, RideSearchParams, RideUpdate
+from app.schemas.ride import RideCreate, RideLocationAccessResponse, RideLocationCreate, RideSearchParams, RideUpdate
 from app.services.notification_jobs import enqueue_notification
 from app.services.notification import NotificationService
 
@@ -268,6 +269,7 @@ class RideService:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Location cannot be updated for completed or cancelled rides")
         if payload.speed_kmph is not None and payload.speed_kmph > settings.LOCATION_MAX_REPORTED_SPEED_KMPH:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Reported speed is too high for ride tracking")
+        self._validate_location_near_route(ride, payload)
 
         try:
             location = RideLocation(
@@ -305,6 +307,56 @@ class RideService:
         self._ensure_location_access(ride_id, current_user)
         return [self._decorate_location(location) for location in self.rides.list_locations(ride_id, limit=limit)]
 
+    def get_location_access(self, ride_id: int, current_user: User) -> RideLocationAccessResponse:
+        ride = self.rides.get_detail_by_id(ride_id)
+        if not ride:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ride not found")
+
+        tracking_starts_at: datetime | None = None
+        tracking_ends_at: datetime | None = None
+
+        if ride.departure_time:
+            departure_time = self._aware_datetime(ride.departure_time)
+            tracking_starts_at = departure_time - timedelta(minutes=settings.LOCATION_TRACKING_START_BEFORE_MINUTES)
+            tracking_ends_at = departure_time + timedelta(minutes=settings.LOCATION_TRACKING_END_AFTER_MINUTES)
+
+        if current_user.id == ride.driver_id:
+            return RideLocationAccessResponse(
+                ride_id=ride.id,
+                can_track=True,
+                reason=None,
+                tracking_starts_at=tracking_starts_at,
+                tracking_ends_at=tracking_ends_at,
+            )
+
+        has_booking = any(booking.passenger_id == current_user.id and booking.status == BookingStatus.accepted for booking in ride.bookings)
+        if not has_booking:
+            return RideLocationAccessResponse(
+                ride_id=ride.id,
+                can_track=False,
+                reason="Location access denied",
+                tracking_starts_at=tracking_starts_at,
+                tracking_ends_at=tracking_ends_at,
+            )
+
+        now = datetime.now(timezone.utc)
+        if tracking_starts_at is not None and tracking_ends_at is not None and (now < tracking_starts_at or now > tracking_ends_at):
+            return RideLocationAccessResponse(
+                ride_id=ride.id,
+                can_track=False,
+                reason="Location tracking is only available near ride time",
+                tracking_starts_at=tracking_starts_at,
+                tracking_ends_at=tracking_ends_at,
+            )
+
+        return RideLocationAccessResponse(
+            ride_id=ride.id,
+            can_track=True,
+            reason=None,
+            tracking_starts_at=tracking_starts_at,
+            tracking_ends_at=tracking_ends_at,
+        )
+
     def cleanup_old_locations(self, *, retention_days: int | None = None) -> int:
         days = retention_days if retention_days is not None else settings.LOCATION_RETENTION_DAYS
         if days < 1:
@@ -341,6 +393,67 @@ class RideService:
         location.age_seconds = age_seconds  # type: ignore[attr-defined]
         location.is_stale = age_seconds >= settings.LOCATION_STALE_AFTER_SECONDS  # type: ignore[attr-defined]
         return location
+
+    def _validate_location_near_route(self, ride: Ride, payload: RideLocationCreate) -> None:
+        route_coordinates = (
+            ride.origin_latitude,
+            ride.origin_longitude,
+            ride.destination_latitude,
+            ride.destination_longitude,
+        )
+        if any(value is None for value in route_coordinates):
+            return
+
+        origin_latitude = float(ride.origin_latitude)
+        origin_longitude = float(ride.origin_longitude)
+        destination_latitude = float(ride.destination_latitude)
+        destination_longitude = float(ride.destination_longitude)
+        distance_km = self._distance_to_route_segment_km(
+            latitude=payload.latitude,
+            longitude=payload.longitude,
+            origin_latitude=origin_latitude,
+            origin_longitude=origin_longitude,
+            destination_latitude=destination_latitude,
+            destination_longitude=destination_longitude,
+        )
+        if distance_km > settings.LOCATION_ROUTE_BUFFER_KM:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Location is too far from this ride route",
+            )
+
+    def _distance_to_route_segment_km(
+        self,
+        *,
+        latitude: float,
+        longitude: float,
+        origin_latitude: float,
+        origin_longitude: float,
+        destination_latitude: float,
+        destination_longitude: float,
+    ) -> float:
+        mean_latitude = radians((origin_latitude + destination_latitude + latitude) / 3)
+
+        def project(point_latitude: float, point_longitude: float) -> tuple[float, float]:
+            return (
+                point_longitude * 111.32 * cos(mean_latitude),
+                point_latitude * 110.574,
+            )
+
+        point_x, point_y = project(latitude, longitude)
+        origin_x, origin_y = project(origin_latitude, origin_longitude)
+        destination_x, destination_y = project(destination_latitude, destination_longitude)
+        segment_x = destination_x - origin_x
+        segment_y = destination_y - origin_y
+        segment_length_squared = segment_x * segment_x + segment_y * segment_y
+        if segment_length_squared == 0:
+            return sqrt((point_x - origin_x) ** 2 + (point_y - origin_y) ** 2)
+
+        projection = ((point_x - origin_x) * segment_x + (point_y - origin_y) * segment_y) / segment_length_squared
+        clamped_projection = max(0.0, min(1.0, projection))
+        closest_x = origin_x + clamped_projection * segment_x
+        closest_y = origin_y + clamped_projection * segment_y
+        return sqrt((point_x - closest_x) ** 2 + (point_y - closest_y) ** 2)
 
     def _aware_datetime(self, value: datetime) -> datetime:
         if value.tzinfo is None:
