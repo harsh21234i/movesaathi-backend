@@ -111,6 +111,17 @@ class JobQueue:
                 for event in recent_events
                 if str(event["name"]).startswith("dispatch-notification:")
             ]
+            dispatch_cleanup_events = [
+                event
+                for event in recent_events
+                if str(event["name"]).startswith(
+                    (
+                        "dispatch-request-expiry:",
+                        "dispatch-dismissal-cleanup:",
+                        "dispatch-presence-cleanup:",
+                    )
+                )
+            ]
             return {
                 "worker_enabled": settings.JOB_WORKER_ENABLED,
                 "synchronous": settings.JOBS_SYNCHRONOUS,
@@ -135,6 +146,12 @@ class JobQueue:
                     "cancelled": sum(1 for event in dispatch_notification_events if str(event["name"]).endswith(":dispatch_cancelled")),
                     "expired": sum(1 for event in dispatch_notification_events if str(event["name"]).endswith(":dispatch_expired")),
                     "retrying": sum(1 for event in dispatch_notification_events if event["status"] == "retry"),
+                },
+                "dispatch_cleanup_jobs": {
+                    "total": len(dispatch_cleanup_events),
+                    "request_expiry": sum(1 for event in dispatch_cleanup_events if str(event["name"]).startswith("dispatch-request-expiry:")),
+                    "dismissal_cleanup": sum(1 for event in dispatch_cleanup_events if str(event["name"]).startswith("dispatch-dismissal-cleanup:")),
+                    "presence_cleanup": sum(1 for event in dispatch_cleanup_events if str(event["name"]).startswith("dispatch-presence-cleanup:")),
                 },
                 "failed_email_jobs": [
                     event

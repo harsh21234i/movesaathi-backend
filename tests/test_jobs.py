@@ -81,6 +81,12 @@ def test_jobs_status_endpoint_reports_snapshot(client, monkeypatch) -> None:
                 "expired": 0,
                 "retrying": 0,
             },
+            "dispatch_cleanup_jobs": {
+                "total": 3,
+                "request_expiry": 1,
+                "dismissal_cleanup": 1,
+                "presence_cleanup": 1,
+            },
         },
     )
 
@@ -94,6 +100,7 @@ def test_jobs_status_endpoint_reports_snapshot(client, monkeypatch) -> None:
     assert body["maintenance_jobs"]["session_cleanup"] == 1
     assert body["maintenance_jobs"]["trip_reminders"] == 1
     assert body["dispatch_notification_jobs"]["matched"] == 1
+    assert body["dispatch_cleanup_jobs"]["request_expiry"] == 1
 
 
 def test_job_queue_snapshot_lists_failed_email_jobs(monkeypatch) -> None:
@@ -146,3 +153,18 @@ def test_job_queue_snapshot_tracks_dispatch_notification_retries(monkeypatch) ->
     assert snapshot["retry_total"] == 1
     assert snapshot["dispatch_notification_jobs"]["expired"] >= 1
     assert snapshot["dispatch_notification_jobs"]["retrying"] >= 1
+
+
+def test_job_queue_snapshot_tracks_dispatch_cleanup_jobs(monkeypatch) -> None:
+    job_queue.reset()
+    monkeypatch.setattr("app.services.job_queue.settings.JOBS_SYNCHRONOUS", True)
+
+    job_queue.enqueue(Job(name="dispatch-request-expiry:500", handler=lambda: None, max_retries=0))
+    job_queue.enqueue(Job(name="dispatch-dismissal-cleanup:7d", handler=lambda: None, max_retries=0))
+    job_queue.enqueue(Job(name="dispatch-presence-cleanup:24h", handler=lambda: None, max_retries=0))
+
+    snapshot = job_queue.snapshot()
+    assert snapshot["dispatch_cleanup_jobs"]["total"] >= 3
+    assert snapshot["dispatch_cleanup_jobs"]["request_expiry"] >= 1
+    assert snapshot["dispatch_cleanup_jobs"]["dismissal_cleanup"] >= 1
+    assert snapshot["dispatch_cleanup_jobs"]["presence_cleanup"] >= 1

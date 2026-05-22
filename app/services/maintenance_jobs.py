@@ -6,6 +6,11 @@ from sqlalchemy.orm import Session
 from app.models.booking import Booking
 from app.repositories.audit_log import AuditLogRepository
 from app.repositories.booking import BookingRepository
+from app.services.dispatch_jobs import (
+    enqueue_dispatch_dismissal_cleanup,
+    enqueue_dispatch_presence_cleanup,
+    enqueue_dispatch_request_expiry,
+)
 from app.services.email import EmailService
 from app.services.job_queue import Job, job_queue
 from app.services.token_store import token_store
@@ -37,6 +42,9 @@ def enqueue_job_housekeeping(
                 db.close()
 
         job_queue.enqueue(Job(name="housekeeping:heartbeat", handler=cleanup_marker))
+        enqueue_dispatch_request_expiry(session_factory=session_factory)
+        enqueue_dispatch_dismissal_cleanup(session_factory=session_factory)
+        enqueue_dispatch_presence_cleanup(session_factory=session_factory)
 
 
 def enqueue_trip_reminder_email(*, booking: Booking) -> None:

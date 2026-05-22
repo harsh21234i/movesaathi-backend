@@ -34,6 +34,9 @@ def test_enqueue_job_housekeeping_can_queue_heartbeat(monkeypatch) -> None:
 
     assert "session-cleanup:42" in calls
     assert "housekeeping:heartbeat" in calls
+    assert "dispatch-request-expiry:500" in calls
+    assert "dispatch-dismissal-cleanup:7d" in calls
+    assert "dispatch-presence-cleanup:24h" in calls
 
 
 def test_enqueue_trip_reminder_email_uses_job_queue(monkeypatch) -> None:
