@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from datetime import datetime, timezone
 
 from redis import Redis
 from sqlalchemy import text
@@ -49,6 +50,7 @@ def build_readiness_payload(
         "status": "ok" if healthy else "degraded",
         "service": settings.PROJECT_NAME,
         "environment": settings.APP_ENV,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
         "checks": {
             "database": {
                 "status": "ok" if database_ok else "error",
@@ -58,6 +60,10 @@ def build_readiness_payload(
                 "status": "ok" if redis_ok else "error",
                 "detail": redis_detail,
             },
+        },
+        "dependencies": {
+            "database": database_ok,
+            "redis": redis_ok,
         },
     }
     return payload, healthy

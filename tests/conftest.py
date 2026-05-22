@@ -13,6 +13,7 @@ from app.core.metrics import metrics
 from app.db.base import Base
 from app.main import app
 from app.core.rate_limit import rate_limiter
+from app.services.job_queue import job_queue
 from app.services.idempotency import idempotency_store
 from app.services.token_store import token_store
 
@@ -56,6 +57,7 @@ def setup_database(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, Non
     token_store._in_memory_tokens.clear()
     idempotency_store.reset()
     rate_limiter.reset()
+    job_queue.reset()
     token_store._in_memory_sessions.clear()
     token_store._in_memory_user_sessions.clear()
     metrics.reset()
@@ -66,6 +68,7 @@ def setup_database(monkeypatch: pytest.MonkeyPatch) -> Generator[None, None, Non
     token_store._in_memory_user_sessions.clear()
     idempotency_store.reset()
     rate_limiter.reset()
+    job_queue.reset()
     metrics.reset()
 
 
