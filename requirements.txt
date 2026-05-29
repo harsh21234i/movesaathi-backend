@@ -8,7 +8,7 @@ passlib[bcrypt]==1.7.4
 pydantic-settings==2.8.1
 python-multipart==0.0.28
 redis==7.4.0
-email-validator==2.2.0
+email-validator==2.3.0
 httpx==0.28.1
 pytest==8.3.5
 pytest-cov==6.1.1
