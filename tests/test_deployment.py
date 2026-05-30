@@ -17,8 +17,13 @@ def test_deployment_status_reports_runtime_flags(client) -> None:
     assert body["integrations"]["smtp_configured"] is False
     assert body["migrations"]["head_count"] >= 1
     assert body["migrations"]["single_head"] is True
+    assert body["migrations"]["rollback_safe"] is True
     assert len(body["migrations"]["heads"]) == body["migrations"]["head_count"]
+    assert body["rollback"]["safe"] is True
+    assert body["rollback"]["reasons"] == []
     assert body["preflight"]["ready_to_deploy"] is True
+    assert body["preflight"]["rollback_safe"] is True
+    assert body["preflight"]["rollback"]["safe"] is True
     assert body["preflight"]["blocking_issues"] == []
     assert body["preflight"]["checks"]["migrations_single_head"] is True
     assert body["preflight"]["checks"]["error_reporting_configured_when_enabled"] is True
@@ -72,6 +77,7 @@ def test_deployment_preflight_blocks_when_dependencies_are_unhealthy(monkeypatch
     )
 
     assert payload["ready_to_deploy"] is False
+    assert payload["rollback_safe"] is False
     assert "runtime-dependencies-unhealthy" in payload["blocking_issues"]
     assert payload["checks"]["runtime_dependencies_healthy"] is False
 
@@ -115,5 +121,37 @@ def test_deployment_checklist_endpoint_returns_release_steps(client) -> None:
     assert body["guards"]["single_migration_head"] is True
     assert body["guards"]["runtime_dependencies_healthy"] is True
     assert body["guards"]["ready_to_deploy"] is True
+    assert body["guards"]["rollback_safe"] is True
+    assert body["rollback"]["safe"] is True
+    assert body["rollback"]["reasons"] == []
     assert "run alembic upgrade head" in body["deploy_steps"]
     assert "restore the database backup" in " ".join(body["rollback_steps"])
+
+
+def test_deployment_preflight_reports_rollback_unsafety_for_multiple_heads(monkeypatch) -> None:
+    from app.services.deployment import build_deployment_preflight_payload
+
+    monkeypatch.setattr(
+        "app.services.deployment.build_migration_preflight_payload",
+        lambda: {"single_head": False, "head_count": 2, "heads": ["head-a", "head-b"], "rollback_safe": False},
+    )
+
+    payload = build_deployment_preflight_payload(
+        readiness_check=lambda: (
+            {
+                "status": "ok",
+                "service": "MooveSaathi",
+                "environment": "test",
+                "checks": {
+                    "database": {"status": "ok", "detail": "ok"},
+                    "redis": {"status": "ok", "detail": "ok"},
+                },
+            },
+            True,
+        )
+    )
+
+    assert payload["rollback_safe"] is False
+    assert payload["rollback"]["safe"] is False
+    assert "alembic-multiple-heads" in payload["blocking_issues"]
+    assert "multiple-alembic-heads" in payload["rollback"]["reasons"]

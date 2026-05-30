@@ -9,6 +9,17 @@ from app.core.config import settings
 from app.services.health import build_readiness_payload
 
 
+def _build_rollback_risk_reasons(*, migrations: dict[str, object], dependencies_healthy: bool) -> list[str]:
+    reasons: list[str] = []
+    if not migrations["single_head"]:
+        reasons.append("multiple-alembic-heads")
+    if not dependencies_healthy:
+        reasons.append("runtime-dependencies-unhealthy")
+    if settings.is_production and settings.AUTO_CREATE_TABLES:
+        reasons.append("auto-create-tables-enabled")
+    return reasons
+
+
 def build_migration_preflight_payload() -> dict[str, object]:
     repo_root = Path(__file__).resolve().parents[2]
     alembic_ini = repo_root / "alembic.ini"
@@ -24,6 +35,7 @@ def build_migration_preflight_payload() -> dict[str, object]:
         "single_head": len(heads) == 1,
         "head_count": len(heads),
         "heads": heads,
+        "rollback_safe": len(heads) == 1,
     }
 
 
@@ -74,9 +86,18 @@ def build_deployment_preflight_payload(
         or bool(settings.ERROR_REPORTING_DSN),
         "support_api_configured_when_enabled": not settings.SUPPORT_API_ENABLED or bool(settings.SUPPORT_API_KEY),
     }
+    rollback_reasons = _build_rollback_risk_reasons(migrations=migrations, dependencies_healthy=dependencies_healthy)
 
     return {
         "ready_to_deploy": not blocking_issues,
+        "rollback_safe": not rollback_reasons,
+        "rollback": {
+            "safe": not rollback_reasons,
+            "reasons": rollback_reasons,
+            "recommended_action": "restore the previous release after verifying database compatibility"
+            if rollback_reasons
+            else "rollback can proceed with the previous application release",
+        },
         "blocking_issues": blocking_issues,
         "checks": checks,
         "runtime_dependencies_healthy": dependencies_healthy,
@@ -86,6 +107,8 @@ def build_deployment_preflight_payload(
 
 
 def build_deployment_status_payload() -> dict[str, object]:
+    migrations = build_migration_preflight_payload()
+    preflight = build_deployment_preflight_payload()
     return {
         "environment": settings.APP_ENV,
         "service": settings.PROJECT_NAME,
@@ -102,6 +125,11 @@ def build_deployment_status_payload() -> dict[str, object]:
         "redis": {
             "url_scheme": settings.REDIS_URL.split(":", 1)[0],
         },
+        "rollback": {
+            "safe": preflight["rollback_safe"],
+            "reasons": preflight["rollback"]["reasons"],
+            "recommended_action": preflight["rollback"]["recommended_action"],
+        },
         "jobs": {
             "enabled": settings.JOB_WORKER_ENABLED,
             "synchronous": settings.JOBS_SYNCHRONOUS,
@@ -111,8 +139,8 @@ def build_deployment_status_payload() -> dict[str, object]:
             "emails_enabled": settings.EMAILS_ENABLED,
             "smtp_configured": bool(settings.SMTP_HOST),
         },
-        "migrations": build_migration_preflight_payload(),
-        "preflight": build_deployment_preflight_payload(),
+        "migrations": migrations,
+        "preflight": preflight,
     }
 
 
@@ -140,5 +168,7 @@ def build_deployment_checklist_payload() -> dict[str, object]:
             "single_migration_head": build_migration_preflight_payload()["single_head"],
             "runtime_dependencies_healthy": preflight["runtime_dependencies_healthy"],
             "ready_to_deploy": preflight["ready_to_deploy"],
+            "rollback_safe": preflight["rollback_safe"],
         },
+        "rollback": preflight["rollback"],
     }
