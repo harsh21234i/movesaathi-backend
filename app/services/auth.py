@@ -2,7 +2,7 @@ import logging
 from datetime import datetime, timezone
 from datetime import timedelta
 
-from fastapi import HTTPException, status
+from fastapi import HTTPException, Request, status
 from jose import JWTError
 from sqlalchemy.orm import Session
 from sqlalchemy.orm import sessionmaker
@@ -30,6 +30,7 @@ from app.schemas.auth import (
     RegisterRequest,
     SessionListResponse,
     SessionResponse,
+    AccountSecurityResponse,
     ResendVerificationRequest,
     ResendVerificationResponse,
     ResetPasswordRequest,
@@ -89,7 +90,7 @@ class AuthService:
             response.verification_token = verification_token
         return response
 
-    def login(self, payload: LoginRequest) -> TokenResponse:
+    def login(self, payload: LoginRequest, *, request: Request | None = None) -> TokenResponse:
         user = self.users.get_by_email(payload.email)
         if not user:
             raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid credentials")
@@ -112,12 +113,21 @@ class AuthService:
             entity_type="session",
             metadata={"email": user.email},
         )
-        return self._issue_token_pair(str(user.id))
+        return self._issue_token_pair(
+            str(user.id),
+            user_agent=self._request_user_agent(request),
+            ip_address=self._request_ip_address(request),
+        )
 
-    def refresh(self, payload: RefreshRequest) -> TokenResponse:
+    def refresh(self, payload: RefreshRequest, *, request: Request | None = None) -> TokenResponse:
         token_payload = self._decode_expected_token(payload.refresh_token, expected_type="refresh")
+        existing_session = token_store.get_session(token_payload["jti"])
         revoke_token_from_payload(token_payload)
-        return self._issue_token_pair(str(token_payload["sub"]))
+        return self._issue_token_pair(
+            str(token_payload["sub"]),
+            user_agent=existing_session.user_agent if existing_session else self._request_user_agent(request),
+            ip_address=existing_session.ip_address if existing_session else self._request_ip_address(request),
+        )
 
     def logout(self, access_token: str, refresh_token: str | None = None) -> None:
         access_payload = self._decode_expected_token(access_token, expected_type="access")
@@ -238,7 +248,7 @@ class AuthService:
             self.users.db.rollback()
             raise
 
-    def list_sessions(self, current_user: User) -> SessionListResponse:
+    def list_sessions(self, current_user: User, *, current_session_jti: str | None = None) -> SessionListResponse:
         sessions = token_store.list_sessions(current_user.id)
         return SessionListResponse(
             items=[
@@ -246,6 +256,10 @@ class AuthService:
                     jti=session.jti,
                     issued_at=session.issued_at.isoformat(),
                     expires_at=session.expires_at.isoformat(),
+                    current_session=session.jti == current_session_jti if current_session_jti else False,
+                    device_name=self._device_name(session.user_agent),
+                    user_agent=session.user_agent,
+                    ip_address=session.ip_address,
                 )
                 for session in sessions
             ]
@@ -257,15 +271,28 @@ class AuthService:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
         token_store.revoke_session(session_jti)
 
-    def _issue_token_pair(self, subject: str) -> TokenResponse:
-        access_token = create_access_token(subject=subject)
+    def account_security(self, current_user: User) -> AccountSecurityResponse:
+        locked_until = self._normalize_datetime(current_user.locked_until)
+        is_locked = bool(locked_until and locked_until > datetime.now(timezone.utc))
+        reason = "Account temporarily locked due to too many failed login attempts" if is_locked else None
+        return AccountSecurityResponse(
+            failed_login_attempts=current_user.failed_login_attempts,
+            locked_until=locked_until,
+            is_locked=is_locked,
+            lockout_reason=reason,
+        )
+
+    def _issue_token_pair(self, subject: str, *, user_agent: str | None = None, ip_address: str | None = None) -> TokenResponse:
         refresh_token = create_refresh_token(subject=subject)
         refresh_payload = decode_token(refresh_token)
+        access_token = create_access_token(subject=subject, extra_claims={"session_jti": refresh_payload["jti"]})
         token_store.register_session(
             user_id=int(subject),
             jti=refresh_payload["jti"],
             issued_at=datetime.now(timezone.utc),
             expires_at=datetime.fromtimestamp(refresh_payload["exp"], tz=timezone.utc),
+            user_agent=user_agent,
+            ip_address=ip_address,
         )
         return TokenResponse(access_token=access_token, refresh_token=refresh_token)
 
@@ -301,6 +328,31 @@ class AuthService:
 
     def _issue_verification_token(self, user: User) -> str:
         return create_email_verification_token(subject=str(user.id))
+
+    def _request_user_agent(self, request: Request | None) -> str | None:
+        if not request:
+            return None
+        user_agent = request.headers.get("user-agent")
+        return user_agent or None
+
+    def _request_ip_address(self, request: Request | None) -> str | None:
+        if not request or not request.client:
+            return None
+        return request.client.host
+
+    def _device_name(self, user_agent: str | None) -> str:
+        if not user_agent:
+            return "Unknown device"
+        lowered = user_agent.lower()
+        if "mobile" in lowered or "android" in lowered or "iphone" in lowered:
+            return "Mobile browser"
+        if "windows" in lowered:
+            return "Windows browser"
+        if "mac os" in lowered or "macintosh" in lowered:
+            return "Mac browser"
+        if "linux" in lowered:
+            return "Linux browser"
+        return "Browser"
 
     def _queue_verification_email(self, user: User, verification_token: str) -> None:
         def send_verification() -> None:

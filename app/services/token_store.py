@@ -15,6 +15,8 @@ class SessionRecord:
     user_id: int
     issued_at: datetime
     expires_at: datetime
+    user_agent: str | None = None
+    ip_address: str | None = None
 
 
 class TokenStore:
@@ -54,7 +56,16 @@ class TokenStore:
             self._prune_expired()
             return jti in self._in_memory_tokens
 
-    def register_session(self, *, user_id: int, jti: str, issued_at: datetime, expires_at: datetime) -> None:
+    def register_session(
+        self,
+        *,
+        user_id: int,
+        jti: str,
+        issued_at: datetime,
+        expires_at: datetime,
+        user_agent: str | None = None,
+        ip_address: str | None = None,
+    ) -> None:
         issued_at = self._normalize(issued_at)
         expires_at = self._normalize(expires_at)
         try:
@@ -65,6 +76,8 @@ class TokenStore:
                     "user_id": str(user_id),
                     "issued_at": issued_at.isoformat(),
                     "expires_at": expires_at.isoformat(),
+                    "user_agent": user_agent or "",
+                    "ip_address": ip_address or "",
                 },
             )
             ttl_seconds = max(int((expires_at - datetime.now(timezone.utc)).total_seconds()), 1)
@@ -81,9 +94,31 @@ class TokenStore:
                 user_id=user_id,
                 issued_at=issued_at,
                 expires_at=expires_at,
+                user_agent=user_agent,
+                ip_address=ip_address,
             )
             self._in_memory_user_sessions.setdefault(user_id, set()).add(jti)
             self._prune_expired()
+
+    def get_session(self, jti: str) -> SessionRecord | None:
+        try:
+            data = self._client.hgetall(self._session_key(jti))
+            if not data:
+                return None
+            return SessionRecord(
+                jti=jti,
+                user_id=int(data["user_id"]),
+                issued_at=datetime.fromisoformat(data["issued_at"]),
+                expires_at=datetime.fromisoformat(data["expires_at"]),
+                user_agent=data.get("user_agent") or None,
+                ip_address=data.get("ip_address") or None,
+            )
+        except (RedisError, AttributeError, KeyError, ValueError):
+            pass
+
+        with self._lock:
+            self._prune_expired()
+            return self._in_memory_sessions.get(jti)
 
     def list_sessions(self, user_id: int) -> list[SessionRecord]:
         try:
@@ -99,6 +134,8 @@ class TokenStore:
                         user_id=int(data["user_id"]),
                         issued_at=datetime.fromisoformat(data["issued_at"]),
                         expires_at=datetime.fromisoformat(data["expires_at"]),
+                        user_agent=data.get("user_agent") or None,
+                        ip_address=data.get("ip_address") or None,
                     )
                 )
             return sorted(sessions, key=lambda item: item.issued_at, reverse=True)

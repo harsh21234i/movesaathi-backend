@@ -14,6 +14,7 @@ from app.schemas.auth import (
     RegisterResponse,
     RefreshRequest,
     RegisterRequest,
+    AccountSecurityResponse,
     SessionListResponse,
     ResendVerificationRequest,
     ResendVerificationResponse,
@@ -45,6 +46,7 @@ def register(payload: RegisterRequest, db: Session = Depends(get_db)) -> Registe
 @router.post("/login", response_model=TokenResponse)
 def login(
     payload: LoginRequest,
+    request: Request,
     db: Session = Depends(get_db),
     _: None = Depends(cache_json_body),
     __: None = Depends(
@@ -56,7 +58,7 @@ def login(
         )
     ),
 ) -> TokenResponse:
-    return AuthService(db).login(payload)
+    return AuthService(db).login(payload, request=request)
 
 
 @router.post("/forgot-password", response_model=ForgotPasswordResponse)
@@ -129,8 +131,8 @@ def change_password(
 
 
 @router.post("/refresh", response_model=TokenResponse)
-def refresh_tokens(payload: RefreshRequest, db: Session = Depends(get_db)) -> TokenResponse:
-    return AuthService(db).refresh(payload)
+def refresh_tokens(payload: RefreshRequest, request: Request, db: Session = Depends(get_db)) -> TokenResponse:
+    return AuthService(db).refresh(payload, request=request)
 
 
 @router.post("/logout", status_code=status.HTTP_204_NO_CONTENT)
@@ -149,9 +151,22 @@ def list_sessions(
     access_token: str = Depends(oauth2_scheme),
 ) -> SessionListResponse:
     from app.api.deps import get_current_user
+    from app.core.security import decode_token
 
     current_user = get_current_user(db=db, token=access_token)
-    return AuthService(db).list_sessions(current_user)
+    token_payload = decode_token(access_token)
+    return AuthService(db).list_sessions(current_user, current_session_jti=token_payload.get("session_jti"))
+
+
+@router.get("/security", response_model=AccountSecurityResponse)
+def account_security(
+    db: Session = Depends(get_db),
+    access_token: str = Depends(oauth2_scheme),
+) -> AccountSecurityResponse:
+    from app.api.deps import get_current_user
+
+    current_user = get_current_user(db=db, token=access_token)
+    return AuthService(db).account_security(current_user)
 
 
 @router.delete("/sessions/{session_jti}", status_code=status.HTTP_204_NO_CONTENT)
