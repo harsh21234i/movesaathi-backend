@@ -232,6 +232,49 @@ def test_change_password_revokes_existing_sessions(client) -> None:
     assert new_login.status_code == 200
 
 
+def test_sessions_include_device_metadata_and_refresh_preserves_it(client) -> None:
+    register_response = client.post(
+        "/api/v1/auth/register",
+        json={
+            "full_name": "Session Metadata User",
+            "email": "metadata@example.com",
+            "password": "Password123",
+            "phone_number": "4444444444",
+        },
+    )
+    assert register_response.status_code == 201
+
+    login_response = client.post(
+        "/api/v1/auth/login",
+        json={"email": "metadata@example.com", "password": "Password123"},
+    )
+    assert login_response.status_code == 200
+    access_token = login_response.json()["access_token"]
+    refresh_token = login_response.json()["refresh_token"]
+
+    sessions_response = client.get("/api/v1/auth/sessions", headers={"Authorization": f"Bearer {access_token}"})
+    assert sessions_response.status_code == 200
+    session = sessions_response.json()["items"][0]
+    assert session["current_session"] is True
+    assert session["device_name"]
+    assert session["user_agent"]
+    assert session["ip_address"]
+
+    refresh_response = client.post("/api/v1/auth/refresh", json={"refresh_token": refresh_token})
+    assert refresh_response.status_code == 200
+
+    refreshed_sessions = client.get(
+        "/api/v1/auth/sessions",
+        headers={"Authorization": f"Bearer {refresh_response.json()['access_token']}"},
+    )
+    assert refreshed_sessions.status_code == 200
+    refreshed_session = refreshed_sessions.json()["items"][0]
+    assert refreshed_session["current_session"] is True
+    assert refreshed_session["device_name"] == session["device_name"]
+    assert refreshed_session["user_agent"] == session["user_agent"]
+    assert refreshed_session["ip_address"] == session["ip_address"]
+
+
 def test_forgot_password_and_reset_password_flow(client) -> None:
     register_response = client.post(
         "/api/v1/auth/register",
