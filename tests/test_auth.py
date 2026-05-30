@@ -147,6 +147,35 @@ def test_register_rejects_weak_password(client) -> None:
     assert response.status_code == 422
 
 
+def test_account_security_reports_lockout_state(client, db_session) -> None:
+    register_response = client.post(
+        "/api/v1/auth/register",
+        json={
+            "full_name": "Lockout User",
+            "email": "lockout@example.com",
+            "password": "Password123",
+            "phone_number": "2222222222",
+        },
+    )
+    assert register_response.status_code == 201
+
+    from datetime import datetime, timedelta, timezone
+
+    from app.repositories.user import UserRepository
+    from app.services.auth import AuthService
+
+    user = UserRepository(db_session).get_by_email("lockout@example.com")
+    assert user is not None
+    user.failed_login_attempts = 3
+    user.locked_until = datetime.now(timezone.utc) + timedelta(minutes=15)
+    db_session.commit()
+
+    account_security = AuthService(db_session).account_security(user)
+    assert account_security.is_locked is True
+    assert account_security.failed_login_attempts == 3
+    assert account_security.lockout_reason
+
+
 def test_refresh_rotates_tokens_and_logout_revokes_access(client) -> None:
     register_response = client.post(
         "/api/v1/auth/register",

@@ -14,6 +14,7 @@ from app.schemas.auth import (
     RegisterResponse,
     RefreshRequest,
     RegisterRequest,
+    AccountSecurityResponse,
     SessionListResponse,
     ResendVerificationRequest,
     ResendVerificationResponse,
@@ -155,6 +156,17 @@ def list_sessions(
     current_user = get_current_user(db=db, token=access_token)
     token_payload = decode_token(access_token)
     return AuthService(db).list_sessions(current_user, current_session_jti=token_payload.get("session_jti"))
+
+
+@router.get("/security", response_model=AccountSecurityResponse)
+def account_security(
+    db: Session = Depends(get_db),
+    access_token: str = Depends(oauth2_scheme),
+) -> AccountSecurityResponse:
+    from app.api.deps import get_current_user
+
+    current_user = get_current_user(db=db, token=access_token)
+    return AuthService(db).account_security(current_user)
 
 
 @router.delete("/sessions/{session_jti}", status_code=status.HTTP_204_NO_CONTENT)
