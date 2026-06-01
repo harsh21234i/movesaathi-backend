@@ -9,7 +9,13 @@ from app.core.config import settings
 pwd_context = CryptContext(schemes=["pbkdf2_sha256"], deprecated="auto")
 
 
-def create_token(subject: str, token_type: str, expires_delta: timedelta) -> str:
+def create_token(
+    subject: str,
+    token_type: str,
+    expires_delta: timedelta,
+    *,
+    extra_claims: dict[str, object] | None = None,
+) -> str:
     expire = datetime.now(timezone.utc) + (
         expires_delta
     )
@@ -20,14 +26,22 @@ def create_token(subject: str, token_type: str, expires_delta: timedelta) -> str
         "jti": str(uuid.uuid4()),
         "iss": settings.TOKEN_ISSUER,
     }
+    if extra_claims:
+        payload.update(extra_claims)
     return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.JWT_ALGORITHM)
 
 
-def create_access_token(subject: str, expires_delta: timedelta | None = None) -> str:
+def create_access_token(
+    subject: str,
+    expires_delta: timedelta | None = None,
+    *,
+    extra_claims: dict[str, object] | None = None,
+) -> str:
     return create_token(
         subject=subject,
         token_type="access",
         expires_delta=expires_delta or timedelta(minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES),
+        extra_claims=extra_claims,
     )
 
 

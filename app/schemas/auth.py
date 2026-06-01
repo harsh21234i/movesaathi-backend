@@ -82,6 +82,10 @@ class SessionResponse(BaseModel):
     jti: str
     issued_at: str
     expires_at: str
+    current_session: bool = False
+    device_name: str | None = None
+    user_agent: str | None = None
+    ip_address: str | None = None
 
 
 class SessionListResponse(BaseModel):
