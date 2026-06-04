@@ -304,6 +304,50 @@ def test_sessions_include_device_metadata_and_refresh_preserves_it(client) -> No
     assert refreshed_session["ip_address"] == session["ip_address"]
 
 
+def test_revoke_other_sessions_keeps_current_session(client) -> None:
+    from datetime import datetime, timedelta, timezone
+
+    from app.core.security import decode_token
+    from app.services.token_store import token_store
+
+    register_response = client.post(
+        "/api/v1/auth/register",
+        json={
+            "full_name": "Session Control User",
+            "email": "control@example.com",
+            "password": "Password123",
+            "phone_number": "3333333333",
+        },
+    )
+    assert register_response.status_code == 201
+
+    login_response = client.post(
+        "/api/v1/auth/login",
+        json={"email": "control@example.com", "password": "Password123"},
+    )
+    assert login_response.status_code == 200
+    access_token = login_response.json()["access_token"]
+    current_jti = decode_token(access_token)["session_jti"]
+
+    token_store.register_session(
+        user_id=1,
+        jti="other-session-jti",
+        issued_at=datetime.now(timezone.utc),
+        expires_at=datetime.now(timezone.utc) + timedelta(days=1),
+        user_agent="Mozilla/5.0",
+        ip_address="127.0.0.1",
+    )
+
+    response = client.post(
+        "/api/v1/auth/sessions/revoke-others",
+        headers={"Authorization": f"Bearer {access_token}"},
+    )
+    assert response.status_code == 204
+
+    sessions = token_store.list_sessions(1)
+    assert {session.jti for session in sessions} == {current_jti}
+
+
 def test_forgot_password_and_reset_password_flow(client) -> None:
     register_response = client.post(
         "/api/v1/auth/register",

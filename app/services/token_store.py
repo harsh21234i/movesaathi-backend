@@ -195,6 +195,41 @@ class TokenStore:
         for jti, expires_at in records_to_revoke:
             self.revoke(jti, expires_at)
 
+    def revoke_user_sessions_except(self, user_id: int, keep_jti: str | None) -> None:
+        try:
+            sessions = self._client.smembers(self._user_sessions_key(user_id))
+            for jti in sessions:
+                if jti == keep_jti:
+                    continue
+                data = self._client.hgetall(self._session_key(jti))
+                expires_at = datetime.fromisoformat(data["expires_at"]) if data else datetime.now(timezone.utc)
+                self.revoke(jti, expires_at)
+                self._client.delete(self._session_key(jti))
+            if keep_jti is None:
+                self._client.delete(self._user_sessions_key(user_id))
+            else:
+                self._client.sadd(self._user_sessions_key(user_id), keep_jti)
+            return
+        except (RedisError, AttributeError):
+            pass
+
+        records_to_revoke: list[tuple[str, datetime]] = []
+        with self._lock:
+            sessions = self._in_memory_user_sessions.get(user_id, set()).copy()
+            for jti in sessions:
+                if jti == keep_jti:
+                    continue
+                record = self._in_memory_sessions.pop(jti, None)
+                if record:
+                    records_to_revoke.append((jti, record.expires_at))
+            if keep_jti is None:
+                self._in_memory_user_sessions.pop(user_id, None)
+            else:
+                self._in_memory_user_sessions[user_id] = {keep_jti}
+
+        for jti, expires_at in records_to_revoke:
+            self.revoke(jti, expires_at)
+
     def _prune_expired(self) -> None:
         now = datetime.now(timezone.utc)
         self._in_memory_tokens = {

@@ -271,15 +271,30 @@ class AuthService:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
         token_store.revoke_session(session_jti)
 
+    def revoke_other_sessions(self, current_user: User, *, current_session_jti: str | None) -> None:
+        token_store.revoke_user_sessions_except(current_user.id, current_session_jti)
+        self.audit_logs.record(
+            action="other_sessions_revoked",
+            actor_user_id=current_user.id,
+            entity_type="session",
+            metadata={"kept_session_jti": current_session_jti},
+        )
+
     def account_security(self, current_user: User) -> AccountSecurityResponse:
         locked_until = self._normalize_datetime(current_user.locked_until)
         is_locked = bool(locked_until and locked_until > datetime.now(timezone.utc))
         reason = "Account temporarily locked due to too many failed login attempts" if is_locked else None
+        recovery_hint = (
+            "Wait for the lock to expire, then sign in again or reset your password if you suspect abuse."
+            if is_locked
+            else "Use session management to revoke other devices or change your password if needed."
+        )
         return AccountSecurityResponse(
             failed_login_attempts=current_user.failed_login_attempts,
             locked_until=locked_until,
             is_locked=is_locked,
             lockout_reason=reason,
+            recovery_hint=recovery_hint,
         )
 
     def _issue_token_pair(self, subject: str, *, user_agent: str | None = None, ip_address: str | None = None) -> TokenResponse:
