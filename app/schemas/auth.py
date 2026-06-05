@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from pydantic import BaseModel, EmailStr, Field, field_validator
 
 from app.models.user import UserRole
@@ -90,6 +92,13 @@ class SessionResponse(BaseModel):
 
 class SessionListResponse(BaseModel):
     items: list[SessionResponse]
+
+
+class AccountSecurityResponse(BaseModel):
+    failed_login_attempts: int
+    locked_until: datetime | None
+    is_locked: bool
+    lockout_reason: str | None = None
 
 
 class ResendVerificationRequest(BaseModel):
