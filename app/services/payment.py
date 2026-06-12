@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
+from sqlalchemy.orm import sessionmaker
 
 from app.models.booking import BookingStatus
 from app.models.payment import Payment, PaymentEvent, PaymentProvider, PaymentStatus
@@ -11,6 +12,7 @@ from app.repositories.booking import BookingRepository
 from app.repositories.payment import PaymentRepository
 from app.schemas.payment import PaymentCreate, PaymentWebhookEvent, PaymentWebhookResponse
 from app.services.audit_log import AuditLogService
+from app.services.payment_jobs import enqueue_payment_capture_retry, enqueue_payment_refund_retry
 from app.services.payment_provider import payment_provider
 
 
@@ -19,6 +21,13 @@ class PaymentService:
         self.payments = PaymentRepository(db)
         self.bookings = BookingRepository(db)
         self.audit_logs = AuditLogService(db)
+        self.payment_session_factory = sessionmaker(
+            bind=db.get_bind(),
+            autoflush=False,
+            autocommit=False,
+            expire_on_commit=False,
+            future=True,
+        )
 
     def create_payment(self, payload: PaymentCreate, current_user: User) -> Payment:
         booking = self.bookings.get_by_id(payload.booking_id)
@@ -93,7 +102,23 @@ class PaymentService:
         payment = self.payments.get_by_booking_id(booking_id)
         if not payment or payment.status != PaymentStatus.authorized:
             return payment
+        if not payment_provider.capture_payment(payment.provider_payment_id):
+            payment.failure_reason = "Provider capture failed; retry scheduled"
+            saved = self.payments.save(payment)
+            if commit:
+                self.payments.db.commit()
+            enqueue_payment_capture_retry(session_factory=self.payment_session_factory, payment_id=payment.id)
+            self.audit_logs.record(
+                action="payment_capture_retry_queued",
+                actor_user_id=payment.payer_id,
+                entity_type="payment",
+                entity_id=str(payment.id),
+                metadata={"booking_id": booking_id},
+                commit=commit,
+            )
+            return saved
         payment.status = PaymentStatus.captured
+        payment.failure_reason = None
         saved = self.payments.save(payment)
         if commit:
             self.payments.db.commit()
@@ -113,19 +138,74 @@ class PaymentService:
             return payment
         if payment_provider.refund_payment(payment.provider_payment_id):
             payment.status = PaymentStatus.refunded
+            payment.failure_reason = None
         else:
-            payment.status = PaymentStatus.failed
-            payment.failure_reason = "Provider refund failed"
+            payment.failure_reason = "Provider refund failed; retry scheduled"
         saved = self.payments.save(payment)
         if commit:
             self.payments.db.commit()
+        if payment.status == PaymentStatus.refunded:
+            self.audit_logs.record(
+                action="payment_refunded",
+                actor_user_id=payment.payer_id,
+                entity_type="payment",
+                entity_id=str(payment.id),
+                metadata={"booking_id": booking_id},
+                commit=commit,
+            )
+        else:
+            enqueue_payment_refund_retry(session_factory=self.payment_session_factory, payment_id=payment.id)
+            self.audit_logs.record(
+                action="payment_refund_retry_queued",
+                actor_user_id=payment.payer_id,
+                entity_type="payment",
+                entity_id=str(payment.id),
+                metadata={"booking_id": booking_id},
+                commit=commit,
+            )
+        return saved
+
+    def retry_capture_payment(self, payment_id: int) -> Payment | None:
+        payment = self.payments.get_by_id(payment_id)
+        if not payment or payment.status != PaymentStatus.authorized:
+            return payment
+        if not payment_provider.capture_payment(payment.provider_payment_id):
+            payment.failure_reason = "Provider capture failed"
+            self.payments.save(payment)
+            self.payments.db.commit()
+            raise RuntimeError(f"payment capture retry failed for payment_id={payment.id}")
+        payment.status = PaymentStatus.captured
+        payment.failure_reason = None
+        saved = self.payments.save(payment)
+        self.payments.db.commit()
+        self.audit_logs.record(
+            action="payment_captured",
+            actor_user_id=payment.payer_id,
+            entity_type="payment",
+            entity_id=str(payment.id),
+            metadata={"booking_id": payment.booking_id, "retry": True},
+        )
+        return saved
+
+    def retry_refund_payment(self, payment_id: int) -> Payment | None:
+        payment = self.payments.get_by_id(payment_id)
+        if not payment or payment.status not in {PaymentStatus.authorized, PaymentStatus.captured}:
+            return payment
+        if not payment_provider.refund_payment(payment.provider_payment_id):
+            payment.failure_reason = "Provider refund failed"
+            self.payments.save(payment)
+            self.payments.db.commit()
+            raise RuntimeError(f"payment refund retry failed for payment_id={payment.id}")
+        payment.status = PaymentStatus.refunded
+        payment.failure_reason = None
+        saved = self.payments.save(payment)
+        self.payments.db.commit()
         self.audit_logs.record(
             action="payment_refunded",
             actor_user_id=payment.payer_id,
             entity_type="payment",
             entity_id=str(payment.id),
-            metadata={"booking_id": booking_id},
-            commit=commit,
+            metadata={"booking_id": payment.booking_id, "retry": True},
         )
         return saved
 

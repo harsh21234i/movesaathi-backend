@@ -14,6 +14,9 @@ class MockPaymentProvider:
     def confirm_payment(self, provider_payment_id: str) -> bool:
         return provider_payment_id.startswith("mock_pay_")
 
+    def capture_payment(self, provider_payment_id: str) -> bool:
+        return provider_payment_id.startswith("mock_pay_")
+
     def refund_payment(self, provider_payment_id: str) -> bool:
         return provider_payment_id.startswith("mock_pay_")
 

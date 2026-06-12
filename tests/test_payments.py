@@ -146,3 +146,57 @@ def test_payment_webhook_can_capture_payment(client) -> None:
     assert response.status_code == 200
     assert response.json()["processed"] is True
     assert response.json()["status"] == "captured"
+
+
+def test_driver_acceptance_queues_capture_retry_when_provider_fails(client, monkeypatch) -> None:
+    booking_id, passenger_headers, driver_headers = _create_booking(client)
+    payment = client.post("/api/v1/payments", headers=passenger_headers, json={"booking_id": booking_id}).json()
+    confirmed = client.post(f"/api/v1/payments/{payment['id']}/confirm", headers=passenger_headers)
+    assert confirmed.status_code == 200
+
+    attempts = {"count": 0}
+
+    def flaky_capture(provider_payment_id: str) -> bool:
+        attempts["count"] += 1
+        return attempts["count"] >= 2
+
+    monkeypatch.setattr("app.services.payment_provider.payment_provider.capture_payment", flaky_capture)
+    monkeypatch.setattr("app.services.job_queue.settings.JOB_WORKER_RETRY_DELAY_SECONDS", 0)
+
+    accepted = client.patch(f"/api/v1/bookings/{booking_id}", headers=driver_headers, json={"status": "accepted"})
+    assert accepted.status_code == 200
+    assert attempts["count"] == 2
+
+    payment_detail = client.get(f"/api/v1/payments/bookings/{booking_id}", headers=driver_headers)
+    assert payment_detail.status_code == 200
+    assert payment_detail.json()["status"] == "captured"
+    assert payment_detail.json()["failure_reason"] is None
+
+
+def test_passenger_cancel_queues_refund_retry_when_provider_fails(client, monkeypatch) -> None:
+    booking_id, passenger_headers, driver_headers = _create_booking(client)
+    payment = client.post("/api/v1/payments", headers=passenger_headers, json={"booking_id": booking_id}).json()
+    client.post(f"/api/v1/payments/{payment['id']}/confirm", headers=passenger_headers)
+    client.patch(f"/api/v1/bookings/{booking_id}", headers=driver_headers, json={"status": "accepted"})
+
+    attempts = {"count": 0}
+
+    def flaky_refund(provider_payment_id: str) -> bool:
+        attempts["count"] += 1
+        return attempts["count"] >= 2
+
+    monkeypatch.setattr("app.services.payment_provider.payment_provider.refund_payment", flaky_refund)
+    monkeypatch.setattr("app.services.job_queue.settings.JOB_WORKER_RETRY_DELAY_SECONDS", 0)
+
+    cancelled = client.patch(
+        f"/api/v1/bookings/{booking_id}",
+        headers=passenger_headers,
+        json={"status": "cancelled_by_passenger"},
+    )
+    assert cancelled.status_code == 200
+    assert attempts["count"] == 2
+
+    payment_detail = client.get(f"/api/v1/payments/bookings/{booking_id}", headers=passenger_headers)
+    assert payment_detail.status_code == 200
+    assert payment_detail.json()["status"] == "refunded"
+    assert payment_detail.json()["failure_reason"] is None

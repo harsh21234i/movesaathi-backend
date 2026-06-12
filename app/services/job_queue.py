@@ -122,6 +122,11 @@ class JobQueue:
                     )
                 )
             ]
+            payment_retry_events = [
+                event
+                for event in recent_events
+                if str(event["name"]).startswith(("payment-capture-retry:", "payment-refund-retry:"))
+            ]
             return {
                 "worker_enabled": settings.JOB_WORKER_ENABLED,
                 "synchronous": settings.JOBS_SYNCHRONOUS,
@@ -153,6 +158,12 @@ class JobQueue:
                     "dismissal_cleanup": sum(1 for event in dispatch_cleanup_events if str(event["name"]).startswith("dispatch-dismissal-cleanup:")),
                     "presence_cleanup": sum(1 for event in dispatch_cleanup_events if str(event["name"]).startswith("dispatch-presence-cleanup:")),
                 },
+                "payment_retry_jobs": {
+                    "total": len(payment_retry_events),
+                    "capture_retries": sum(1 for event in payment_retry_events if str(event["name"]).startswith("payment-capture-retry:")),
+                    "refund_retries": sum(1 for event in payment_retry_events if str(event["name"]).startswith("payment-refund-retry:")),
+                    "retrying": sum(1 for event in payment_retry_events if event["status"] == "retry"),
+                },
                 "failed_email_jobs": [
                     event
                     for event in recent_events
@@ -161,6 +172,11 @@ class JobQueue:
                 "failed_dispatch_notification_jobs": [
                     event
                     for event in dispatch_notification_events
+                    if event["status"] == "failed"
+                ],
+                "failed_payment_jobs": [
+                    event
+                    for event in payment_retry_events
                     if event["status"] == "failed"
                 ],
             }
