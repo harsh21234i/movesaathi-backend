@@ -54,6 +54,9 @@ def test_passenger_can_create_and_confirm_payment(client) -> None:
     confirm_response = client.post(f"/api/v1/payments/{payment['id']}/confirm", headers=passenger_headers)
     assert confirm_response.status_code == 200
     assert confirm_response.json()["status"] == "authorized"
+    metrics_body = client.get("/metrics").text
+    assert 'moovesaathi_payment_total{event="payment_created",outcome="success"} 1' in metrics_body
+    assert 'moovesaathi_payment_total{event="payment_confirmed",outcome="success"} 1' in metrics_body
 
 
 def test_driver_acceptance_captures_authorized_payment(client) -> None:
@@ -171,6 +174,9 @@ def test_driver_acceptance_queues_capture_retry_when_provider_fails(client, monk
     assert payment_detail.status_code == 200
     assert payment_detail.json()["status"] == "captured"
     assert payment_detail.json()["failure_reason"] is None
+    metrics_body = client.get("/metrics").text
+    assert 'moovesaathi_payment_total{event="payment_capture",outcome="retry_queued"} 1' in metrics_body
+    assert 'moovesaathi_payment_total{event="payment_capture",outcome="retry_success"} 1' in metrics_body
 
 
 def test_passenger_cancel_queues_refund_retry_when_provider_fails(client, monkeypatch) -> None:
@@ -200,3 +206,6 @@ def test_passenger_cancel_queues_refund_retry_when_provider_fails(client, monkey
     assert payment_detail.status_code == 200
     assert payment_detail.json()["status"] == "refunded"
     assert payment_detail.json()["failure_reason"] is None
+    metrics_body = client.get("/metrics").text
+    assert 'moovesaathi_payment_total{event="payment_refund",outcome="retry_queued"} 1' in metrics_body
+    assert 'moovesaathi_payment_total{event="payment_refund",outcome="retry_success"} 1' in metrics_body

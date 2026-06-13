@@ -12,6 +12,7 @@ from app.repositories.booking import BookingRepository
 from app.repositories.payment import PaymentRepository
 from app.schemas.payment import PaymentCreate, PaymentWebhookEvent, PaymentWebhookResponse
 from app.services.audit_log import AuditLogService
+from app.core.metrics import metrics
 from app.services.payment_jobs import enqueue_payment_capture_retry, enqueue_payment_refund_retry
 from app.services.payment_provider import payment_provider
 
@@ -55,6 +56,7 @@ class PaymentService:
             )
             saved = self.payments.create(payment)
             self.payments.db.commit()
+            metrics.record_payment(event="payment_created")
             self.audit_logs.record(
                 action="payment_created",
                 actor_user_id=current_user.id,
@@ -81,10 +83,12 @@ class PaymentService:
                 payment.failure_reason = "Provider confirmation failed"
                 saved = self.payments.save(payment)
                 self.payments.db.commit()
+                metrics.record_payment(event="payment_confirmed", outcome="failed")
                 return saved
             payment.status = PaymentStatus.authorized
             saved = self.payments.save(payment)
             self.payments.db.commit()
+            metrics.record_payment(event="payment_confirmed")
             self.audit_logs.record(
                 action="payment_authorized",
                 actor_user_id=current_user.id,
@@ -107,6 +111,7 @@ class PaymentService:
             saved = self.payments.save(payment)
             if commit:
                 self.payments.db.commit()
+            metrics.record_payment(event="payment_capture", outcome="retry_queued")
             enqueue_payment_capture_retry(session_factory=self.payment_session_factory, payment_id=payment.id)
             self.audit_logs.record(
                 action="payment_capture_retry_queued",
@@ -122,6 +127,7 @@ class PaymentService:
         saved = self.payments.save(payment)
         if commit:
             self.payments.db.commit()
+        metrics.record_payment(event="payment_capture")
         self.audit_logs.record(
             action="payment_captured",
             actor_user_id=payment.payer_id,
@@ -145,6 +151,7 @@ class PaymentService:
         if commit:
             self.payments.db.commit()
         if payment.status == PaymentStatus.refunded:
+            metrics.record_payment(event="payment_refund")
             self.audit_logs.record(
                 action="payment_refunded",
                 actor_user_id=payment.payer_id,
@@ -154,6 +161,7 @@ class PaymentService:
                 commit=commit,
             )
         else:
+            metrics.record_payment(event="payment_refund", outcome="retry_queued")
             enqueue_payment_refund_retry(session_factory=self.payment_session_factory, payment_id=payment.id)
             self.audit_logs.record(
                 action="payment_refund_retry_queued",
@@ -173,11 +181,13 @@ class PaymentService:
             payment.failure_reason = "Provider capture failed"
             self.payments.save(payment)
             self.payments.db.commit()
+            metrics.record_payment(event="payment_capture", outcome="failed")
             raise RuntimeError(f"payment capture retry failed for payment_id={payment.id}")
         payment.status = PaymentStatus.captured
         payment.failure_reason = None
         saved = self.payments.save(payment)
         self.payments.db.commit()
+        metrics.record_payment(event="payment_capture", outcome="retry_success")
         self.audit_logs.record(
             action="payment_captured",
             actor_user_id=payment.payer_id,
@@ -195,11 +205,13 @@ class PaymentService:
             payment.failure_reason = "Provider refund failed"
             self.payments.save(payment)
             self.payments.db.commit()
+            metrics.record_payment(event="payment_refund", outcome="failed")
             raise RuntimeError(f"payment refund retry failed for payment_id={payment.id}")
         payment.status = PaymentStatus.refunded
         payment.failure_reason = None
         saved = self.payments.save(payment)
         self.payments.db.commit()
+        metrics.record_payment(event="payment_refund", outcome="retry_success")
         self.audit_logs.record(
             action="payment_refunded",
             actor_user_id=payment.payer_id,

@@ -14,6 +14,7 @@ class MetricsRegistry:
         self._exception_total: Counter[str] = Counter()
         self._dispatch_total: Counter[tuple[str, str]] = Counter()
         self._auth_total: Counter[tuple[str, str]] = Counter()
+        self._payment_total: Counter[tuple[str, str]] = Counter()
 
     @staticmethod
     def _normalize_path(path: str) -> str:
@@ -48,6 +49,10 @@ class MetricsRegistry:
         with self._lock:
             self._auth_total[(event, outcome)] += count
 
+    def record_payment(self, *, event: str, outcome: str = "success", count: int = 1) -> None:
+        with self._lock:
+            self._payment_total[(event, outcome)] += count
+
     def reset(self) -> None:
         with self._lock:
             self._request_total.clear()
@@ -57,6 +62,7 @@ class MetricsRegistry:
             self._exception_total.clear()
             self._dispatch_total.clear()
             self._auth_total.clear()
+            self._payment_total.clear()
 
     def render_prometheus(self) -> str:
         lines: list[str] = [
@@ -126,6 +132,15 @@ class MetricsRegistry:
             )
             for (event, outcome), value in sorted(self._auth_total.items()):
                 lines.append(f'moovesaathi_auth_total{{event="{event}",outcome="{outcome}"}} {value}')
+
+            lines.extend(
+                [
+                    "# HELP moovesaathi_payment_total Total payment lifecycle and recovery events.",
+                    "# TYPE moovesaathi_payment_total counter",
+                ]
+            )
+            for (event, outcome), value in sorted(self._payment_total.items()):
+                lines.append(f'moovesaathi_payment_total{{event="{event}",outcome="{outcome}"}} {value}')
 
         return "\n".join(lines) + "\n"
 
