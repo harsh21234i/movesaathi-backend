@@ -226,6 +226,16 @@ def test_driver_can_complete_booking_flow(client) -> None:
     )
     assert accept_booking.status_code == 200
 
+    otp_response = client.post(f"/api/v1/bookings/{booking_id}/boarding-code", headers=passenger_headers)
+    assert otp_response.status_code == 200
+    verify_response = client.post(
+        f"/api/v1/bookings/{booking_id}/boarding/verify",
+        headers=driver_headers,
+        json={"otp": otp_response.json()["otp"]},
+    )
+    assert verify_response.status_code == 200
+    assert verify_response.json()["boarded_at"] is not None
+
     complete_booking = client.patch(
         f"/api/v1/bookings/{booking_id}",
         headers=driver_headers,
@@ -237,6 +247,55 @@ def test_driver_can_complete_booking_flow(client) -> None:
     detail_response = client.get(f"/api/v1/bookings/{booking_id}", headers=passenger_headers)
     assert detail_response.status_code == 200
     assert detail_response.json()["status_events"][-1]["label"] == "Trip completed"
+
+
+def test_driver_must_verify_passenger_boarding_otp(client) -> None:
+    driver_headers = _register_and_login(client, name="OTP Driver", email="otp-driver@example.com", role="driver")
+    passenger_headers = _register_and_login(client, name="OTP Passenger", email="otp-passenger@example.com", role="passenger")
+    ride_id = _create_ride(client, driver_headers)
+    booking = client.post("/api/v1/bookings", headers=passenger_headers, json={"ride_id": ride_id}).json()
+    booking_id = booking["id"]
+    client.patch(f"/api/v1/bookings/{booking_id}", headers=driver_headers, json={"status": "accepted"})
+
+    blocked_completion = client.patch(
+        f"/api/v1/bookings/{booking_id}",
+        headers=driver_headers,
+        json={"status": "completed"},
+    )
+    assert blocked_completion.status_code == 400
+    assert blocked_completion.json()["detail"] == "Verify passenger boarding OTP before completing the trip"
+
+    otp_response = client.post(f"/api/v1/bookings/{booking_id}/boarding-code", headers=passenger_headers)
+    assert otp_response.status_code == 200
+    assert len(otp_response.json()["otp"]) == 6
+
+    invalid = client.post(
+        f"/api/v1/bookings/{booking_id}/boarding/verify",
+        headers=driver_headers,
+        json={"otp": "000000"},
+    )
+    assert invalid.status_code == 400
+    assert invalid.json()["detail"] == "Invalid boarding OTP"
+
+    verified = client.post(
+        f"/api/v1/bookings/{booking_id}/boarding/verify",
+        headers=driver_headers,
+        json={"otp": otp_response.json()["otp"]},
+    )
+    assert verified.status_code == 200
+    assert verified.json()["boarded_at"] is not None
+
+
+def test_driver_cannot_generate_passenger_boarding_otp(client) -> None:
+    driver_headers = _register_and_login(client, name="OTP Driver Two", email="otp-driver-2@example.com", role="driver")
+    passenger_headers = _register_and_login(client, name="OTP Passenger Two", email="otp-passenger-2@example.com", role="passenger")
+    ride_id = _create_ride(client, driver_headers)
+    booking = client.post("/api/v1/bookings", headers=passenger_headers, json={"ride_id": ride_id}).json()
+    client.patch(f"/api/v1/bookings/{booking['id']}", headers=driver_headers, json={"status": "accepted"})
+
+    response = client.post(f"/api/v1/bookings/{booking['id']}/boarding-code", headers=driver_headers)
+
+    assert response.status_code == 403
 
 
 def test_create_booking_is_idempotent_with_same_key(client) -> None:

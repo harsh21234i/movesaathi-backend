@@ -32,6 +32,10 @@ The backend is organized as a modular monolith:
 - JWT access/refresh tokens with logout and session tracking
 - Ride publishing, browsing, detail, update, cancel, and complete flows
 - Booking creation, approval, rejection, cancellation, and completion flows
+- Nearby passenger dispatch requests with driver presence and matching
+- Mock and Razorpay payment providers with reconciliation, capture, refund, and webhook processing
+- Boarding OTP verification before trip completion
+- Ride location tracking with access controls and retention jobs
 - Booking-scoped realtime chat with Redis-backed fanout
 - Notifications with unread counts and filtering
 - Audit logs for sensitive actions
@@ -47,6 +51,8 @@ Main API groups:
 - `/api/v1/rides`
 - `/api/v1/bookings`
 - `/api/v1/chat`
+- `/api/v1/dispatch`
+- `/api/v1/payments`
 - `/api/v1/notifications`
 - `/api/v1/reviews`
 - `/api/v1/audit`

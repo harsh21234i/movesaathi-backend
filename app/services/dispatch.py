@@ -71,6 +71,21 @@ class DispatchService:
         self.dispatch.db.commit()
         return availability
 
+    def get_driver_presence(self, current_user: User) -> DriverAvailability:
+        if current_user.role != UserRole.driver:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only driver accounts can view availability")
+
+        availability = self.dispatch.get_driver_availability(current_user.id)
+        if not availability:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Driver availability not found")
+
+        if availability.is_online and self._is_presence_stale(availability.updated_at):
+            availability.is_online = False
+            availability.updated_at = datetime.now(timezone.utc)
+            self.dispatch.upsert_driver_availability(availability)
+            self.dispatch.db.commit()
+        return availability
+
     def touch_driver_presence(self, driver_id: int) -> DriverAvailability | None:
         availability = self.dispatch.touch_driver_availability(driver_id)
         if availability:
@@ -360,11 +375,7 @@ class DispatchService:
         if not availability or not availability.is_online:
             return None
 
-        updated_at = availability.updated_at
-        if updated_at.tzinfo is None:
-            updated_at = updated_at.replace(tzinfo=timezone.utc)
-
-        if (datetime.now(timezone.utc) - updated_at).total_seconds() > settings.DISPATCH_PRESENCE_STALE_AFTER_SECONDS:
+        if self._is_presence_stale(availability.updated_at):
             availability.is_online = False
             availability.updated_at = datetime.now(timezone.utc)
             self.dispatch.upsert_driver_availability(availability)
@@ -372,6 +383,12 @@ class DispatchService:
             return None
 
         return availability
+
+    @staticmethod
+    def _is_presence_stale(updated_at: datetime) -> bool:
+        if updated_at.tzinfo is None:
+            updated_at = updated_at.replace(tzinfo=timezone.utc)
+        return (datetime.now(timezone.utc) - updated_at).total_seconds() > settings.DISPATCH_PRESENCE_STALE_AFTER_SECONDS
 
     def expire_stale_open_requests(self, *, limit: int = 500) -> int:
         now = datetime.now(timezone.utc)

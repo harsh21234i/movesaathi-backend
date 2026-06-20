@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.models.booking import BookingStatus
 from app.schemas.user import UserResponse
@@ -13,6 +13,15 @@ class BookingCreate(BaseModel):
 
 class BookingStatusUpdate(BaseModel):
     status: BookingStatus
+
+
+class BoardingOtpVerify(BaseModel):
+    otp: str = Field(pattern=r"^\d{6}$")
+
+
+class BoardingOtpResponse(BaseModel):
+    otp: str
+    expires_at: datetime
 
 
 class BookingRideSummary(BaseModel):
@@ -44,6 +53,7 @@ class BookingResponse(BaseModel):
     passenger_id: int
     status: BookingStatus
     notes: str | None
+    boarded_at: datetime | None
     created_at: datetime
 
 

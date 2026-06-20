@@ -42,6 +42,7 @@ class Settings(BaseSettings):
     RIDE_WRITE_RATE_LIMIT_WINDOW_SECONDS: int = 60
     BOOKING_WRITE_RATE_LIMIT_MAX_REQUESTS: int = 20
     BOOKING_WRITE_RATE_LIMIT_WINDOW_SECONDS: int = 60
+    BOARDING_OTP_EXPIRE_MINUTES: int = 30
     LOCATION_UPDATE_RATE_LIMIT_MAX_REQUESTS: int = 60
     LOCATION_UPDATE_RATE_LIMIT_WINDOW_SECONDS: int = 60
     LOCATION_STALE_AFTER_SECONDS: int = 300
@@ -65,6 +66,11 @@ class Settings(BaseSettings):
     JOB_WORKER_RETRY_DELAY_SECONDS: float = 0.2
     DISPATCH_NOTIFICATION_MAX_RETRIES: int = 4
     JOBS_SYNCHRONOUS: bool = False
+    PAYMENT_PROVIDER: Literal["mock", "razorpay"] = "mock"
+    PAYMENT_PROVIDER_TIMEOUT_SECONDS: float = 10.0
+    RAZORPAY_KEY_ID: str | None = None
+    RAZORPAY_KEY_SECRET: str | None = None
+    RAZORPAY_WEBHOOK_SECRET: str | None = None
     DATABASE_URL: str = "postgresql+psycopg://postgres:postgres@db:5432/moovesaathi"
     REDIS_URL: str = "redis://redis:6379/0"
     REDIS_SOCKET_CONNECT_TIMEOUT: float = 0.5
@@ -84,7 +90,15 @@ class Settings(BaseSettings):
     ERROR_REPORTING_DSN: str | None = None
     SUPPORT_API_ENABLED: bool = False
     SUPPORT_API_KEY: str | None = None
-    BACKEND_CORS_ORIGINS: list[AnyHttpUrl | str] = ["http://localhost:5173"]
+    BACKEND_CORS_ORIGINS: list[AnyHttpUrl | str] = [
+        "http://localhost:5173",
+        "http://127.0.0.1:5173",
+        "http://localhost:4173",
+        "http://127.0.0.1:4173",
+    ]
+    BACKEND_CORS_ORIGIN_REGEX: str | None = (
+        r"^http://(localhost|127\.0\.0\.1|10\.\d+\.\d+\.\d+|192\.168\.\d+\.\d+|172\.(1[6-9]|2\d|3[01])\.\d+\.\d+):\d{1,5}$"
+    )
 
     @property
     def is_production(self) -> bool:
@@ -108,8 +122,13 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_runtime_settings(self) -> "Settings":
-        if self.is_production and "localhost" in self.BACKEND_CORS_ORIGINS:
+        if self.is_production and any(
+            "localhost" in str(origin) or "127.0.0.1" in str(origin)
+            for origin in self.BACKEND_CORS_ORIGINS
+        ):
             raise ValueError("BACKEND_CORS_ORIGINS must be explicitly configured for production")
+        if self.is_production and self.BACKEND_CORS_ORIGIN_REGEX:
+            raise ValueError("BACKEND_CORS_ORIGIN_REGEX must be disabled or explicitly production-safe")
         if self.is_production and self.DATABASE_URL.startswith("sqlite"):
             raise ValueError("DATABASE_URL must point to a production database")
         if self.is_production and (
@@ -127,6 +146,12 @@ class Settings(BaseSettings):
             raise ValueError("ERROR_REPORTING_DSN must be configured when error reporting is enabled")
         if self.SUPPORT_API_ENABLED and not self.SUPPORT_API_KEY:
             raise ValueError("SUPPORT_API_KEY must be configured when support API is enabled")
+        if self.PAYMENT_PROVIDER == "razorpay" and not all(
+            (self.RAZORPAY_KEY_ID, self.RAZORPAY_KEY_SECRET, self.RAZORPAY_WEBHOOK_SECRET)
+        ):
+            raise ValueError("Razorpay credentials and webhook secret must be configured")
+        if self.is_production and self.PAYMENT_PROVIDER == "mock":
+            raise ValueError("PAYMENT_PROVIDER must use a real provider in production")
         return self
 
 
