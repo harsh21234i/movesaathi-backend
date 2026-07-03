@@ -3,6 +3,8 @@ import hmac
 import json
 from datetime import datetime, timedelta, timezone
 
+from tests.helpers import verify_driver_by_email
+
 
 def _register_and_login(client, *, name: str, email: str, role: str) -> dict[str, str]:
     register_response = client.post(
@@ -16,6 +18,8 @@ def _register_and_login(client, *, name: str, email: str, role: str) -> dict[str
         },
     )
     assert register_response.status_code == 201
+    if role == "driver":
+        verify_driver_by_email(email)
     login_response = client.post("/api/v1/auth/login", json={"email": email, "password": "Password123"})
     assert login_response.status_code == 200
     return {"Authorization": f"Bearer {login_response.json()['access_token']}"}

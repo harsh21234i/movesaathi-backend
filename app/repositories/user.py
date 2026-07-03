@@ -1,7 +1,7 @@
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.user import User
+from app.models.user import DriverVerificationStatus, User, UserRole
 
 
 class UserRepository:
@@ -20,6 +20,19 @@ class UserRepository:
         if email:
             stmt = stmt.where(User.email.ilike(f"%{email}%"))
         stmt = stmt.order_by(User.id.asc()).limit(50)
+        return list(self.db.scalars(stmt))
+
+    def list_pending_driver_verifications(self, *, limit: int = 50, offset: int = 0) -> list[User]:
+        stmt = (
+            select(User)
+            .where(
+                User.role == UserRole.driver,
+                User.driver_verification_status == DriverVerificationStatus.pending,
+            )
+            .order_by(User.driver_profile_submitted_at.asc().nullsfirst(), User.created_at.asc())
+            .offset(offset)
+            .limit(limit)
+        )
         return list(self.db.scalars(stmt))
 
     def create(self, user: User) -> User:
