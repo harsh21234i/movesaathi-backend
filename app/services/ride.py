@@ -10,7 +10,7 @@ from app.models.ride import Ride, RideLocation
 from app.models.booking import BookingStatus
 from app.models.notification import NotificationType
 from app.models.ride import RideStatus
-from app.models.user import User, UserRole
+from app.models.user import DriverVerificationStatus, User, UserRole
 from app.services.audit_log import AuditLogService
 from app.repositories.ride import RideRepository
 from app.schemas.ride import RideCreate, RideLocationAccessResponse, RideLocationCreate, RideSearchParams, RideUpdate
@@ -37,6 +37,7 @@ class RideService:
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Only driver accounts can publish rides",
             )
+        self._ensure_verified_driver(current_user)
 
         try:
             ride = Ride(
@@ -459,3 +460,10 @@ class RideService:
         if value.tzinfo is None:
             return value.replace(tzinfo=timezone.utc)
         return value
+
+    def _ensure_verified_driver(self, current_user: User) -> None:
+        if current_user.driver_verification_status != DriverVerificationStatus.verified:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Driver verification is required before publishing rides",
+            )

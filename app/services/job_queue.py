@@ -125,7 +125,9 @@ class JobQueue:
             payment_retry_events = [
                 event
                 for event in recent_events
-                if str(event["name"]).startswith(("payment-capture-retry:", "payment-refund-retry:"))
+                if str(event["name"]).startswith(
+                    ("payment-capture-retry:", "payment-refund-retry:", "payment-reconciliation:")
+                )
             ]
             return {
                 "worker_enabled": settings.JOB_WORKER_ENABLED,
@@ -162,6 +164,7 @@ class JobQueue:
                     "total": len(payment_retry_events),
                     "capture_retries": sum(1 for event in payment_retry_events if str(event["name"]).startswith("payment-capture-retry:")),
                     "refund_retries": sum(1 for event in payment_retry_events if str(event["name"]).startswith("payment-refund-retry:")),
+                    "reconciliations": sum(1 for event in payment_retry_events if str(event["name"]).startswith("payment-reconciliation:")),
                     "retrying": sum(1 for event in payment_retry_events if event["status"] == "retry"),
                 },
                 "failed_email_jobs": [

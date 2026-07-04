@@ -1,3 +1,8 @@
+import hashlib
+import hmac
+import secrets
+from datetime import datetime, timedelta, timezone
+
 from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy.orm import sessionmaker
@@ -6,6 +11,7 @@ from app.models.booking import Booking, BookingStatus
 from app.models.notification import NotificationType
 from app.models.ride import RideStatus
 from app.models.user import User, UserRole
+from app.core.config import settings
 from app.services.audit_log import AuditLogService
 from app.repositories.booking import BookingRepository
 from app.repositories.ride import RideRepository
@@ -101,6 +107,64 @@ class BookingService:
         except Exception:
             self.bookings.db.rollback()
             raise
+
+    def issue_boarding_otp(self, booking_id: int, current_user: User) -> tuple[str, datetime]:
+        booking = self.bookings.get_by_id(booking_id)
+        if not booking:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Booking not found")
+        if current_user.id != booking.passenger_id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only the passenger can generate the boarding OTP")
+        if booking.status != BookingStatus.accepted:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Boarding OTP is available only for accepted bookings")
+        if booking.boarded_at:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Passenger boarding is already verified")
+
+        otp = f"{secrets.randbelow(1_000_000):06d}"
+        expires_at = datetime.now(timezone.utc) + timedelta(minutes=settings.BOARDING_OTP_EXPIRE_MINUTES)
+        booking.boarding_otp_hash = self._hash_boarding_otp(booking.id, otp)
+        booking.boarding_otp_expires_at = expires_at
+        self.bookings.save(booking)
+        self.bookings.db.commit()
+        self.audit_logs.record(
+            action="boarding_otp_issued",
+            actor_user_id=current_user.id,
+            entity_type="booking",
+            entity_id=str(booking.id),
+        )
+        return otp, expires_at
+
+    def verify_boarding_otp(self, booking_id: int, otp: str, current_user: User) -> Booking:
+        booking = self.bookings.get_by_id(booking_id)
+        if not booking:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Booking not found")
+        if current_user.id != booking.ride.driver_id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only the driver can verify boarding")
+        if booking.status != BookingStatus.accepted:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only accepted bookings can be boarded")
+        if booking.boarded_at:
+            return booking
+        if not booking.boarding_otp_hash or not booking.boarding_otp_expires_at:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Passenger must generate a boarding OTP first")
+        expires_at = self._aware_datetime(booking.boarding_otp_expires_at)
+        if expires_at <= datetime.now(timezone.utc):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Boarding OTP has expired")
+        expected = self._hash_boarding_otp(booking.id, otp)
+        if not hmac.compare_digest(expected, booking.boarding_otp_hash):
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid boarding OTP")
+
+        booking.boarded_at = datetime.now(timezone.utc)
+        booking.boarding_otp_hash = None
+        booking.boarding_otp_expires_at = None
+        saved = self.bookings.save(booking)
+        self.bookings.db.commit()
+        self.audit_logs.record(
+            action="passenger_boarding_verified",
+            actor_user_id=current_user.id,
+            entity_type="booking",
+            entity_id=str(booking.id),
+            metadata={"passenger_id": booking.passenger_id},
+        )
+        return saved
 
     def list_passenger_bookings(
         self,
@@ -255,6 +319,8 @@ class BookingService:
         if status_value == BookingStatus.completed:
             if booking.status != BookingStatus.accepted:
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only accepted bookings can be completed")
+            if not booking.boarded_at:
+                raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Verify passenger boarding OTP before completing the trip")
             booking.status = BookingStatus.completed
             self.notifications.create_notification(
                 recipient_id=booking.passenger_id,
@@ -287,3 +353,12 @@ class BookingService:
             title="Booking cancelled",
             body=f"{booking.passenger.full_name} cancelled the booking from {booking.ride.origin} to {booking.ride.destination}.",
         )
+
+    @staticmethod
+    def _aware_datetime(value: datetime) -> datetime:
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+
+    @staticmethod
+    def _hash_boarding_otp(booking_id: int, otp: str) -> str:
+        payload = f"{booking_id}:{otp}".encode()
+        return hmac.new(settings.SECRET_KEY.encode(), payload, hashlib.sha256).hexdigest()

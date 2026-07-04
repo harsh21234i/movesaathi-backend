@@ -91,6 +91,7 @@ def test_jobs_status_endpoint_reports_snapshot(client, monkeypatch) -> None:
                 "total": 2,
                 "capture_retries": 1,
                 "refund_retries": 1,
+                "reconciliations": 0,
                 "retrying": 0,
             },
             "failed_payment_jobs": [],
@@ -184,11 +185,13 @@ def test_job_queue_snapshot_tracks_payment_retry_jobs(monkeypatch) -> None:
 
     job_queue.enqueue(Job(name="payment-capture-retry:11", handler=lambda: None, max_retries=0))
     job_queue.enqueue(Job(name="payment-refund-retry:12", handler=lambda: None, max_retries=0))
+    job_queue.enqueue(Job(name="payment-reconciliation:13", handler=lambda: None, max_retries=0))
 
     snapshot = job_queue.snapshot()
-    assert snapshot["payment_retry_jobs"]["total"] >= 2
+    assert snapshot["payment_retry_jobs"]["total"] >= 3
     assert snapshot["payment_retry_jobs"]["capture_retries"] >= 1
     assert snapshot["payment_retry_jobs"]["refund_retries"] >= 1
+    assert snapshot["payment_retry_jobs"]["reconciliations"] >= 1
 
 
 def test_job_queue_snapshot_lists_failed_payment_jobs(monkeypatch) -> None:

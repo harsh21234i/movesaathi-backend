@@ -50,3 +50,7 @@ class PaymentRepository:
     def get_by_provider_payment_id(self, provider_payment_id: str) -> Payment | None:
         stmt = select(Payment).where(Payment.provider_payment_id == provider_payment_id)
         return self.db.scalar(stmt)
+
+    def get_by_provider_order_id(self, provider_order_id: str) -> Payment | None:
+        stmt = select(Payment).where(Payment.provider_order_id == provider_order_id)
+        return self.db.scalar(stmt)
