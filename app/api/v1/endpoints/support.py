@@ -9,7 +9,10 @@ from app.schemas.support import (
     SupportUserResponse,
     SupportUserSearchResponse,
 )
+from app.models.incident import IncidentStatus
 from app.models.user import DriverVerificationStatus
+from app.schemas.incident import IncidentListResponse, IncidentResponse, IncidentStatusUpdate
+from app.services.incident import IncidentService
 from app.services.support import SupportService
 
 router = APIRouter()
@@ -79,3 +82,37 @@ def support_review_driver_verification(
     db: Session = Depends(get_db),
 ) -> SupportUserResponse:
     return SupportService(db).review_driver_verification(user_id=user_id, payload=payload, request=request)
+
+
+@router.get("/incidents", response_model=IncidentListResponse)
+def support_list_incidents(
+    request: Request,
+    incident_status: IncidentStatus | None = Query(default=None, alias="status"),
+    reporter_id: int | None = Query(default=None),
+    ride_id: int | None = Query(default=None),
+    booking_id: int | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+) -> IncidentListResponse:
+    return IncidentListResponse(
+        items=IncidentService(db).list_for_support(
+            request=request,
+            incident_status=incident_status,
+            reporter_id=reporter_id,
+            ride_id=ride_id,
+            booking_id=booking_id,
+            limit=limit,
+            offset=offset,
+        )
+    )
+
+
+@router.patch("/incidents/{incident_id}", response_model=IncidentResponse)
+def support_update_incident_status(
+    incident_id: int,
+    payload: IncidentStatusUpdate,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> IncidentResponse:
+    return IncidentService(db).update_support_status(incident_id=incident_id, payload=payload, request=request)
