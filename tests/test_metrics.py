@@ -5,6 +5,7 @@ def test_metrics_endpoint_exposes_request_and_job_counters(client) -> None:
     client.get("/health")
     metrics.record_job(name="demo-job", status="success")
     metrics.record_dispatch(event="request_created", outcome="success")
+    metrics.record_payment(event="payment_created")
 
     response = client.get("/metrics")
 
@@ -13,6 +14,7 @@ def test_metrics_endpoint_exposes_request_and_job_counters(client) -> None:
     assert 'moovesaathi_requests_total{method="GET",path="/health",status="200"} 1' in body
     assert 'moovesaathi_jobs_total{job="demo-job",status="success"} 1' in body
     assert 'moovesaathi_dispatch_total{event="request_created",outcome="success"} 1' in body
+    assert 'moovesaathi_payment_total{event="payment_created",outcome="success"} 1' in body
 
 
 def test_metrics_capture_exceptions(client) -> None:

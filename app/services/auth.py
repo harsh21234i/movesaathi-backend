@@ -9,6 +9,7 @@ from sqlalchemy.orm import sessionmaker
 
 from app.api.deps import revoke_token_from_payload
 from app.core.config import settings
+from app.core.metrics import metrics
 from app.core.security import (
     create_access_token,
     create_email_verification_token,
@@ -151,6 +152,14 @@ class AuthService:
             )
 
         reset_token = create_reset_token(subject=str(user.id))
+        metrics.record_auth(event="password_reset_requested")
+        self.audit_logs.record(
+            action="password_reset_requested",
+            actor_user_id=user.id,
+            entity_type="user",
+            entity_id=str(user.id),
+            metadata={"email": user.email},
+        )
         self.email_service.queue_reset_password_email(
             to_email=user.email,
             full_name=user.full_name,
@@ -221,6 +230,13 @@ class AuthService:
             self.users.db.commit()
             revoke_token_from_payload(reset_payload)
             token_store.revoke_user_sessions(user.id)
+            metrics.record_auth(event="password_reset_completed")
+            self.audit_logs.record(
+                action="password_reset_completed",
+                actor_user_id=user.id,
+                entity_type="user",
+                entity_id=str(user.id),
+            )
         except Exception:
             self.users.db.rollback()
             raise
@@ -270,16 +286,37 @@ class AuthService:
         if not any(session.jti == session_jti for session in sessions):
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Session not found")
         token_store.revoke_session(session_jti)
+        self.audit_logs.record(
+            action="session_revoked",
+            actor_user_id=current_user.id,
+            entity_type="session",
+            entity_id=session_jti,
+        )
+
+    def revoke_other_sessions(self, current_user: User, *, current_session_jti: str | None) -> None:
+        token_store.revoke_user_sessions_except(current_user.id, current_session_jti)
+        self.audit_logs.record(
+            action="other_sessions_revoked",
+            actor_user_id=current_user.id,
+            entity_type="session",
+            metadata={"kept_session_jti": current_session_jti},
+        )
 
     def account_security(self, current_user: User) -> AccountSecurityResponse:
         locked_until = self._normalize_datetime(current_user.locked_until)
         is_locked = bool(locked_until and locked_until > datetime.now(timezone.utc))
         reason = "Account temporarily locked due to too many failed login attempts" if is_locked else None
+        recovery_hint = (
+            "Wait for the lock to expire, then sign in again or reset your password if you suspect abuse."
+            if is_locked
+            else "Use session management to revoke other devices or change your password if needed."
+        )
         return AccountSecurityResponse(
             failed_login_attempts=current_user.failed_login_attempts,
             locked_until=locked_until,
             is_locked=is_locked,
             lockout_reason=reason,
+            recovery_hint=recovery_hint,
         )
 
     def _issue_token_pair(self, subject: str, *, user_agent: str | None = None, ip_address: str | None = None) -> TokenResponse:
@@ -299,6 +336,15 @@ class AuthService:
     def _ensure_login_not_locked(self, user: User) -> None:
         locked_until = self._normalize_datetime(user.locked_until)
         if locked_until and locked_until > datetime.now(timezone.utc):
+            metrics.record_auth(event="login_blocked_locked")
+            self.audit_logs.record(
+                action="login_blocked_locked",
+                actor_user_id=user.id,
+                entity_type="user",
+                entity_id=str(user.id),
+                severity="warning",
+                metadata={"locked_until": locked_until},
+            )
             raise HTTPException(
                 status_code=status.HTTP_423_LOCKED,
                 detail="Account temporarily locked due to too many failed login attempts",
@@ -306,9 +352,27 @@ class AuthService:
 
     def _record_failed_login(self, user: User) -> None:
         user.failed_login_attempts += 1
+        metrics.record_auth(event="login_failed", outcome="invalid_password")
+        self.audit_logs.record(
+            action="login_failed",
+            actor_user_id=user.id,
+            entity_type="user",
+            entity_id=str(user.id),
+            severity="warning",
+            metadata={"failed_login_attempts": user.failed_login_attempts},
+        )
         if user.failed_login_attempts >= settings.AUTH_MAX_FAILED_LOGIN_ATTEMPTS:
             user.locked_until = datetime.now(timezone.utc) + timedelta(minutes=settings.AUTH_LOCKOUT_WINDOW_MINUTES)
             user.failed_login_attempts = 0
+            metrics.record_auth(event="account_locked")
+            self.audit_logs.record(
+                action="account_locked",
+                actor_user_id=user.id,
+                entity_type="user",
+                entity_id=str(user.id),
+                severity="warning",
+                metadata={"locked_until": user.locked_until},
+            )
         self.users.save(user)
         self.users.db.commit()
 

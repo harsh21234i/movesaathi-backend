@@ -87,6 +87,13 @@ def test_jobs_status_endpoint_reports_snapshot(client, monkeypatch) -> None:
                 "dismissal_cleanup": 1,
                 "presence_cleanup": 1,
             },
+            "payment_retry_jobs": {
+                "total": 2,
+                "capture_retries": 1,
+                "refund_retries": 1,
+                "retrying": 0,
+            },
+            "failed_payment_jobs": [],
         },
     )
 
@@ -101,6 +108,7 @@ def test_jobs_status_endpoint_reports_snapshot(client, monkeypatch) -> None:
     assert body["maintenance_jobs"]["trip_reminders"] == 1
     assert body["dispatch_notification_jobs"]["matched"] == 1
     assert body["dispatch_cleanup_jobs"]["request_expiry"] == 1
+    assert body["payment_retry_jobs"]["capture_retries"] == 1
 
 
 def test_job_queue_snapshot_lists_failed_email_jobs(monkeypatch) -> None:
@@ -168,3 +176,31 @@ def test_job_queue_snapshot_tracks_dispatch_cleanup_jobs(monkeypatch) -> None:
     assert snapshot["dispatch_cleanup_jobs"]["request_expiry"] >= 1
     assert snapshot["dispatch_cleanup_jobs"]["dismissal_cleanup"] >= 1
     assert snapshot["dispatch_cleanup_jobs"]["presence_cleanup"] >= 1
+
+
+def test_job_queue_snapshot_tracks_payment_retry_jobs(monkeypatch) -> None:
+    job_queue.reset()
+    monkeypatch.setattr("app.services.job_queue.settings.JOBS_SYNCHRONOUS", True)
+
+    job_queue.enqueue(Job(name="payment-capture-retry:11", handler=lambda: None, max_retries=0))
+    job_queue.enqueue(Job(name="payment-refund-retry:12", handler=lambda: None, max_retries=0))
+
+    snapshot = job_queue.snapshot()
+    assert snapshot["payment_retry_jobs"]["total"] >= 2
+    assert snapshot["payment_retry_jobs"]["capture_retries"] >= 1
+    assert snapshot["payment_retry_jobs"]["refund_retries"] >= 1
+
+
+def test_job_queue_snapshot_lists_failed_payment_jobs(monkeypatch) -> None:
+    job_queue.reset()
+    monkeypatch.setattr("app.services.job_queue.settings.JOBS_SYNCHRONOUS", True)
+
+    def handler() -> None:
+        raise RuntimeError("payment retry failed")
+
+    job_queue.enqueue(Job(name="payment-refund-retry:9", handler=handler, max_retries=0))
+
+    snapshot = job_queue.snapshot()
+    assert snapshot["failed_total"] == 1
+    assert len(snapshot["failed_payment_jobs"]) == 1
+    assert snapshot["failed_payment_jobs"][0]["name"] == "payment-refund-retry:9"

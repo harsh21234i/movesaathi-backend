@@ -99,6 +99,7 @@ class AccountSecurityResponse(BaseModel):
     locked_until: datetime | None
     is_locked: bool
     lockout_reason: str | None = None
+    recovery_hint: str | None = None
 
 
 class ResendVerificationRequest(BaseModel):

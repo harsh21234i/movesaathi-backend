@@ -176,6 +176,73 @@ def test_account_security_reports_lockout_state(client, db_session) -> None:
     assert account_security.lockout_reason
 
 
+def test_failed_login_and_lockout_are_audited_and_metered(client, db_session, monkeypatch) -> None:
+    from app.repositories.audit_log import AuditLogRepository
+
+    monkeypatch.setattr("app.services.auth.settings.AUTH_MAX_FAILED_LOGIN_ATTEMPTS", 2)
+
+    register_response = client.post(
+        "/api/v1/auth/register",
+        json={
+            "full_name": "Audit Login User",
+            "email": "audit-login@example.com",
+            "password": "Password123",
+            "phone_number": "2323232323",
+        },
+    )
+    assert register_response.status_code == 201
+
+    for _ in range(2):
+        response = client.post(
+            "/api/v1/auth/login",
+            json={"email": "audit-login@example.com", "password": "WrongPassword123"},
+        )
+        assert response.status_code == 401
+
+    audit_actions = [log.action for log in AuditLogRepository(db_session).list_for_user(1, limit=20)]
+    assert "login_failed" in audit_actions
+    assert "account_locked" in audit_actions
+
+    metrics_body = client.get("/metrics").text
+    assert 'moovesaathi_auth_total{event="login_failed",outcome="invalid_password"} 2' in metrics_body
+    assert 'moovesaathi_auth_total{event="account_locked",outcome="success"} 1' in metrics_body
+
+
+def test_locked_account_attempts_are_audited_and_metered(client, db_session) -> None:
+    from datetime import datetime, timedelta, timezone
+
+    from app.repositories.audit_log import AuditLogRepository
+    from app.repositories.user import UserRepository
+
+    register_response = client.post(
+        "/api/v1/auth/register",
+        json={
+            "full_name": "Locked Retry User",
+            "email": "locked-retry@example.com",
+            "password": "Password123",
+            "phone_number": "2424242424",
+        },
+    )
+    assert register_response.status_code == 201
+
+    user = UserRepository(db_session).get_by_email("locked-retry@example.com")
+    assert user is not None
+    user.locked_until = datetime.now(timezone.utc) + timedelta(minutes=15)
+    db_session.commit()
+
+    response = client.post(
+        "/api/v1/auth/login",
+        json={"email": "locked-retry@example.com", "password": "Password123"},
+    )
+    assert response.status_code == 423
+
+    audit_actions = [log.action for log in AuditLogRepository(db_session).list_for_user(user.id, limit=20)]
+    assert "login_blocked_locked" in audit_actions
+
+    metrics_body = client.get("/metrics").text
+    assert 'moovesaathi_auth_total{event="login_blocked_locked",outcome="success"} 1' in metrics_body
+
+
 def test_refresh_rotates_tokens_and_logout_revokes_access(client) -> None:
     register_response = client.post(
         "/api/v1/auth/register",
@@ -304,6 +371,93 @@ def test_sessions_include_device_metadata_and_refresh_preserves_it(client) -> No
     assert refreshed_session["ip_address"] == session["ip_address"]
 
 
+def test_revoke_other_sessions_keeps_current_session(client) -> None:
+    from datetime import datetime, timedelta, timezone
+
+    from app.core.security import decode_token
+    from app.services.token_store import token_store
+
+    register_response = client.post(
+        "/api/v1/auth/register",
+        json={
+            "full_name": "Session Control User",
+            "email": "control@example.com",
+            "password": "Password123",
+            "phone_number": "3333333333",
+        },
+    )
+    assert register_response.status_code == 201
+
+    login_response = client.post(
+        "/api/v1/auth/login",
+        json={"email": "control@example.com", "password": "Password123"},
+    )
+    assert login_response.status_code == 200
+    access_token = login_response.json()["access_token"]
+    current_jti = decode_token(access_token)["session_jti"]
+
+    token_store.register_session(
+        user_id=1,
+        jti="other-session-jti",
+        issued_at=datetime.now(timezone.utc),
+        expires_at=datetime.now(timezone.utc) + timedelta(days=1),
+        user_agent="Mozilla/5.0",
+        ip_address="127.0.0.1",
+    )
+
+    response = client.post(
+        "/api/v1/auth/sessions/revoke-others",
+        headers={"Authorization": f"Bearer {access_token}"},
+    )
+    assert response.status_code == 204
+
+    sessions = token_store.list_sessions(1)
+    assert {session.jti for session in sessions} == {current_jti}
+
+
+def test_revoke_session_is_audited(client, db_session) -> None:
+    from datetime import datetime, timedelta, timezone
+
+    from app.repositories.audit_log import AuditLogRepository
+    from app.services.token_store import token_store
+
+    register_response = client.post(
+        "/api/v1/auth/register",
+        json={
+            "full_name": "Revoke Audit User",
+            "email": "revoke-audit@example.com",
+            "password": "Password123",
+            "phone_number": "3535353535",
+        },
+    )
+    assert register_response.status_code == 201
+
+    login_response = client.post(
+        "/api/v1/auth/login",
+        json={"email": "revoke-audit@example.com", "password": "Password123"},
+    )
+    assert login_response.status_code == 200
+    access_token = login_response.json()["access_token"]
+
+    token_store.register_session(
+        user_id=1,
+        jti="revocable-session-jti",
+        issued_at=datetime.now(timezone.utc),
+        expires_at=datetime.now(timezone.utc) + timedelta(days=1),
+        user_agent="Mozilla/5.0",
+        ip_address="127.0.0.1",
+    )
+
+    response = client.delete(
+        "/api/v1/auth/sessions/revocable-session-jti",
+        headers={"Authorization": f"Bearer {access_token}"},
+    )
+    assert response.status_code == 204
+
+    audit_actions = [log.action for log in AuditLogRepository(db_session).list_for_user(1, limit=20)]
+    assert "session_revoked" in audit_actions
+
+
 def test_forgot_password_and_reset_password_flow(client) -> None:
     register_response = client.post(
         "/api/v1/auth/register",
@@ -345,6 +499,39 @@ def test_forgot_password_and_reset_password_flow(client) -> None:
         json={"token": reset_token, "new_password": "AnotherPassword123"},
     )
     assert reused_reset.status_code == 401
+
+
+def test_password_reset_recovery_events_are_audited_and_metered(client, db_session) -> None:
+    from app.repositories.audit_log import AuditLogRepository
+
+    register_response = client.post(
+        "/api/v1/auth/register",
+        json={
+            "full_name": "Reset Audit User",
+            "email": "reset-audit@example.com",
+            "password": "Password123",
+            "phone_number": "4545454545",
+        },
+    )
+    assert register_response.status_code == 201
+
+    forgot_response = client.post("/api/v1/auth/forgot-password", json={"email": "reset-audit@example.com"})
+    assert forgot_response.status_code == 200
+    reset_token = forgot_response.json()["reset_token"]
+
+    reset_response = client.post(
+        "/api/v1/auth/reset-password",
+        json={"token": reset_token, "new_password": "NewPassword123"},
+    )
+    assert reset_response.status_code == 204
+
+    audit_actions = [log.action for log in AuditLogRepository(db_session).list_for_user(1, limit=20)]
+    assert "password_reset_requested" in audit_actions
+    assert "password_reset_completed" in audit_actions
+
+    metrics_body = client.get("/metrics").text
+    assert 'moovesaathi_auth_total{event="password_reset_requested",outcome="success"} 1' in metrics_body
+    assert 'moovesaathi_auth_total{event="password_reset_completed",outcome="success"} 1' in metrics_body
 
 
 def test_forgot_password_is_generic_for_unknown_email(client) -> None:

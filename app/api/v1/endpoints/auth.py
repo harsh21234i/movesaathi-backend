@@ -180,3 +180,17 @@ def revoke_session(
     current_user = get_current_user(db=db, token=access_token)
     AuthService(db).revoke_session(current_user, session_jti)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/sessions/revoke-others", status_code=status.HTTP_204_NO_CONTENT)
+def revoke_other_sessions(
+    db: Session = Depends(get_db),
+    access_token: str = Depends(oauth2_scheme),
+) -> Response:
+    from app.api.deps import get_current_user
+    from app.core.security import decode_token
+
+    current_user = get_current_user(db=db, token=access_token)
+    token_payload = decode_token(access_token)
+    AuthService(db).revoke_other_sessions(current_user, current_session_jti=token_payload.get("session_jti"))
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
