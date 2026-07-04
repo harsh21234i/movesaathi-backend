@@ -3,11 +3,13 @@ from sqlalchemy.orm import Session
 
 from app.api.deps import get_db
 from app.schemas.support import (
+    DriverVerificationListResponse,
     DriverVerificationReviewRequest,
     PendingDriverVerificationResponse,
     SupportUserResponse,
     SupportUserSearchResponse,
 )
+from app.models.user import DriverVerificationStatus
 from app.services.support import SupportService
 
 router = APIRouter()
@@ -29,6 +31,28 @@ def support_search_users(
     db: Session = Depends(get_db),
 ) -> SupportUserSearchResponse:
     return SupportUserSearchResponse(items=SupportService(db).search_users(email=email, request=request))
+
+
+@router.get("/driver-verifications", response_model=DriverVerificationListResponse)
+def support_list_driver_verifications(
+    request: Request,
+    verification_status: DriverVerificationStatus | None = Query(default=None, alias="status"),
+    email: str | None = Query(default=None),
+    vehicle_plate_number: str | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+) -> DriverVerificationListResponse:
+    return DriverVerificationListResponse(
+        items=SupportService(db).list_driver_verifications(
+            request=request,
+            verification_status=verification_status,
+            email=email,
+            vehicle_plate_number=vehicle_plate_number,
+            limit=limit,
+            offset=offset,
+        )
+    )
 
 
 @router.get("/driver-verifications/pending", response_model=PendingDriverVerificationResponse)

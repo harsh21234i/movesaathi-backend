@@ -3,7 +3,12 @@ from datetime import datetime
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from app.models.user import DriverVerificationStatus, UserRole
+from app.schemas.audit_log import AuditLogResponse
 from app.schemas.audit_log import AuditLogSummaryResponse
+
+
+class DriverVerificationHistoryResponse(BaseModel):
+    items: list[AuditLogResponse]
 
 
 class SupportUserResponse(BaseModel):
@@ -31,6 +36,7 @@ class SupportUserResponse(BaseModel):
     locked_until: datetime | None
     created_at: datetime
     audit_summary: AuditLogSummaryResponse | None = None
+    driver_verification_history: DriverVerificationHistoryResponse | None = None
 
 
 class SupportUserSearchResponse(BaseModel):
@@ -43,4 +49,8 @@ class DriverVerificationReviewRequest(BaseModel):
 
 
 class PendingDriverVerificationResponse(BaseModel):
+    items: list[SupportUserResponse]
+
+
+class DriverVerificationListResponse(BaseModel):
     items: list[SupportUserResponse]

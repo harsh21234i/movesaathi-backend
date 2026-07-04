@@ -23,13 +23,30 @@ class UserRepository:
         return list(self.db.scalars(stmt))
 
     def list_pending_driver_verifications(self, *, limit: int = 50, offset: int = 0) -> list[User]:
+        return self.list_driver_verifications(
+            verification_status=DriverVerificationStatus.pending,
+            limit=limit,
+            offset=offset,
+        )
+
+    def list_driver_verifications(
+        self,
+        *,
+        verification_status: DriverVerificationStatus | None = None,
+        email: str | None = None,
+        vehicle_plate_number: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[User]:
+        stmt = select(User).where(User.role == UserRole.driver)
+        if verification_status:
+            stmt = stmt.where(User.driver_verification_status == verification_status)
+        if email:
+            stmt = stmt.where(User.email.ilike(f"%{email}%"))
+        if vehicle_plate_number:
+            stmt = stmt.where(User.vehicle_plate_number.ilike(f"%{vehicle_plate_number}%"))
         stmt = (
-            select(User)
-            .where(
-                User.role == UserRole.driver,
-                User.driver_verification_status == DriverVerificationStatus.pending,
-            )
-            .order_by(User.driver_profile_submitted_at.asc().nullsfirst(), User.created_at.asc())
+            stmt.order_by(User.driver_profile_submitted_at.asc().nullsfirst(), User.created_at.asc())
             .offset(offset)
             .limit(limit)
         )

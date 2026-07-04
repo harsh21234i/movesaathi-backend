@@ -14,7 +14,7 @@ from app.core.config import settings
 from app.models.notification import NotificationType
 from app.models.user import DriverVerificationStatus, User, UserRole
 from app.repositories.user import UserRepository
-from app.schemas.support import DriverVerificationReviewRequest, SupportUserResponse
+from app.schemas.support import DriverVerificationHistoryResponse, DriverVerificationReviewRequest, SupportUserResponse
 from app.services.audit_log import AuditLogService
 from app.services.notification_jobs import enqueue_notification
 
@@ -68,6 +68,26 @@ class SupportService:
         items = self.users.list_pending_driver_verifications(limit=limit, offset=offset)
         return [self._user_response(user) for user in items]
 
+    def list_driver_verifications(
+        self,
+        *,
+        request: Request,
+        verification_status: DriverVerificationStatus | None = None,
+        email: str | None = None,
+        vehicle_plate_number: str | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[SupportUserResponse]:
+        self._require_support_auth(request)
+        items = self.users.list_driver_verifications(
+            verification_status=verification_status,
+            email=email,
+            vehicle_plate_number=vehicle_plate_number,
+            limit=limit,
+            offset=offset,
+        )
+        return [self._user_response(user) for user in items]
+
     def review_driver_verification(
         self,
         *,
@@ -119,7 +139,21 @@ class SupportService:
 
     def _user_response(self, user: User) -> SupportUserResponse:
         summary = self.audit_logs.summarize_my_audit_logs(user)
-        return SupportUserResponse.model_validate({**user.__dict__, "audit_summary": summary})
+        verification_history = DriverVerificationHistoryResponse(
+            items=self.audit_logs.list_entity_audit_logs(
+                entity_type="user",
+                entity_id=str(user.id),
+                action_prefix="driver_verification_",
+                limit=10,
+            )
+        )
+        return SupportUserResponse.model_validate(
+            {
+                **user.__dict__,
+                "audit_summary": summary,
+                "driver_verification_history": verification_history,
+            }
+        )
 
     def _enqueue_driver_verification_notification(self, user: User) -> None:
         approved = user.driver_verification_status == DriverVerificationStatus.verified

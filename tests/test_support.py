@@ -6,6 +6,9 @@ def test_support_lookup_requires_token(client, monkeypatch) -> None:
 
     assert response.status_code == 401
 
+    driver_verifications = client.get("/api/v1/support/driver-verifications")
+    assert driver_verifications.status_code == 401
+
 
 def test_support_lookup_returns_user_with_audit_summary(client, monkeypatch) -> None:
     monkeypatch.setattr("app.core.config.settings.SUPPORT_API_ENABLED", True)
@@ -31,6 +34,7 @@ def test_support_lookup_returns_user_with_audit_summary(client, monkeypatch) -> 
     assert body["items"][0]["email"] == "support-user@example.com"
     assert body["items"][0]["audit_summary"]["total"] >= 1
     assert body["items"][0]["driver_verification_status"] == "pending"
+    assert body["items"][0]["driver_verification_history"]["items"] == []
 
 
 def test_support_can_approve_driver_verification_in_realtime(client, monkeypatch) -> None:
@@ -64,11 +68,31 @@ def test_support_can_approve_driver_verification_in_realtime(client, monkeypatch
         "/api/v1/auth/login",
         json={"email": "approval-driver@example.com", "password": "Password123"},
     ).json()["access_token"]
+    profile_update = client.patch(
+        "/api/v1/users/me/driver-profile",
+        headers={"Authorization": f"Bearer {driver_token}"},
+        json={
+            "vehicle_make": "Toyota",
+            "vehicle_model": "Innova",
+            "vehicle_color": "White",
+            "vehicle_plate_number": "MH12AB1234",
+            "driver_license_number": "DL-APPROVAL-123",
+        },
+    )
+    assert profile_update.status_code == 200
     support_headers = {"x-support-token": "support-secret"}
 
     pending = client.get("/api/v1/support/driver-verifications/pending", headers=support_headers)
     assert pending.status_code == 200
     assert pending.json()["items"][0]["id"] == driver_id
+
+    filtered = client.get(
+        "/api/v1/support/driver-verifications",
+        headers=support_headers,
+        params={"status": "pending", "email": "approval-driver", "vehicle_plate_number": "MH12"},
+    )
+    assert filtered.status_code == 200
+    assert [item["id"] for item in filtered.json()["items"]] == [driver_id]
 
     review = client.patch(
         f"/api/v1/support/driver-verifications/{driver_id}",
@@ -78,7 +102,16 @@ def test_support_can_approve_driver_verification_in_realtime(client, monkeypatch
 
     assert review.status_code == 200
     assert review.json()["driver_verification_status"] == "verified"
+    assert review.json()["driver_verification_history"]["items"][0]["action"] == "driver_verification_verified"
     assert published == [{"user_id": driver_id, "driver_verification_status": "verified"}]
+
+    verified = client.get(
+        "/api/v1/support/driver-verifications",
+        headers=support_headers,
+        params={"status": "verified"},
+    )
+    assert verified.status_code == 200
+    assert [item["id"] for item in verified.json()["items"]] == [driver_id]
 
     notifications = client.get(
         "/api/v1/notifications",
