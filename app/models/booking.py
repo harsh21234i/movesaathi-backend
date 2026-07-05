@@ -33,6 +33,9 @@ class Booking(Base):
     boarding_otp_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
     boarding_otp_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     boarded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    share_token_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, unique=True)
+    share_token_created_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    share_token_revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     ride = relationship("Ride", back_populates="bookings")

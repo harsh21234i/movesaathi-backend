@@ -23,6 +23,14 @@ class BookingRepository:
         stmt = select(Booking).where(Booking.ride_id == ride_id, Booking.passenger_id == passenger_id)
         return self.db.scalar(stmt)
 
+    def get_by_share_token_hash(self, token_hash: str) -> Booking | None:
+        stmt = (
+            select(Booking)
+            .options(joinedload(Booking.ride).joinedload(Ride.driver), joinedload(Booking.passenger))
+            .where(Booking.share_token_hash == token_hash)
+        )
+        return self.db.scalar(stmt)
+
     def list_by_passenger(
         self,
         passenger_id: int,

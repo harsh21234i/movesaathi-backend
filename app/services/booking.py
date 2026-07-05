@@ -166,6 +166,89 @@ class BookingService:
         )
         return saved
 
+    def create_share_token(self, booking_id: int, current_user: User) -> tuple[str, Booking]:
+        booking = self.bookings.get_by_id(booking_id)
+        if not booking:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Booking not found")
+        if current_user.id != booking.passenger_id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only the passenger can share this trip")
+        if booking.status != BookingStatus.accepted:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Only accepted bookings can be shared")
+
+        token = secrets.token_urlsafe(32)
+        booking.share_token_hash = self._hash_share_token(token)
+        booking.share_token_created_at = datetime.now(timezone.utc)
+        booking.share_token_revoked_at = None
+        saved = self.bookings.save(booking)
+        self.bookings.db.commit()
+        self.audit_logs.record(
+            action="trip_share_token_created",
+            actor_user_id=current_user.id,
+            entity_type="booking",
+            entity_id=str(saved.id),
+        )
+        return token, saved
+
+    def revoke_share_token(self, booking_id: int, current_user: User) -> bool:
+        booking = self.bookings.get_by_id(booking_id)
+        if not booking:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Booking not found")
+        if current_user.id != booking.passenger_id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only the passenger can revoke this trip share")
+        if not booking.share_token_hash or booking.share_token_revoked_at:
+            return False
+
+        booking.share_token_revoked_at = datetime.now(timezone.utc)
+        self.bookings.save(booking)
+        self.bookings.db.commit()
+        self.audit_logs.record(
+            action="trip_share_token_revoked",
+            actor_user_id=current_user.id,
+            entity_type="booking",
+            entity_id=str(booking.id),
+        )
+        return True
+
+    def get_public_trip_status(self, token: str) -> dict[str, object]:
+        booking = self.bookings.get_by_share_token_hash(self._hash_share_token(token))
+        if not booking or booking.share_token_revoked_at:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Trip share not found")
+        if booking.status not in {BookingStatus.accepted, BookingStatus.completed}:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Trip share not found")
+
+        ride = booking.ride
+        location_visible = self._is_location_visible_for_public_share(ride.departure_time)
+        latest_location = None
+        if location_visible:
+            latest = self.rides.get_latest_location(ride.id)
+            if latest:
+                age_seconds = max(
+                    0,
+                    int((datetime.now(timezone.utc) - self._aware_datetime(latest.created_at)).total_seconds()),
+                )
+                latest_location = {
+                    "latitude": latest.latitude,
+                    "longitude": latest.longitude,
+                    "heading": latest.heading,
+                    "updated_at": latest.created_at,
+                    "age_seconds": age_seconds,
+                    "is_stale": age_seconds >= settings.LOCATION_STALE_AFTER_SECONDS,
+                }
+
+        return {
+            "origin": ride.origin,
+            "destination": ride.destination,
+            "departure_time": ride.departure_time,
+            "ride_status": ride.status.value,
+            "booking_status": booking.status,
+            "driver": {
+                "first_name": ride.driver.full_name.split()[0] if ride.driver.full_name else "Driver",
+                "rating": ride.driver.rating,
+            },
+            "latest_location": latest_location,
+            "location_visible": location_visible,
+        }
+
     def list_passenger_bookings(
         self,
         current_user: User,
@@ -362,3 +445,14 @@ class BookingService:
     def _hash_boarding_otp(booking_id: int, otp: str) -> str:
         payload = f"{booking_id}:{otp}".encode()
         return hmac.new(settings.SECRET_KEY.encode(), payload, hashlib.sha256).hexdigest()
+
+    @staticmethod
+    def _hash_share_token(token: str) -> str:
+        return hmac.new(settings.SECRET_KEY.encode(), token.encode(), hashlib.sha256).hexdigest()
+
+    def _is_location_visible_for_public_share(self, departure_time: datetime) -> bool:
+        now = datetime.now(timezone.utc)
+        aware_departure = self._aware_datetime(departure_time)
+        starts_at = aware_departure - timedelta(minutes=settings.LOCATION_TRACKING_START_BEFORE_MINUTES)
+        ends_at = aware_departure + timedelta(minutes=settings.LOCATION_TRACKING_END_AFTER_MINUTES)
+        return starts_at <= now <= ends_at

@@ -24,6 +24,41 @@ class BoardingOtpResponse(BaseModel):
     expires_at: datetime
 
 
+class BookingShareTokenResponse(BaseModel):
+    token: str
+    booking_id: int
+    created_at: datetime
+
+
+class BookingShareRevokeResponse(BaseModel):
+    revoked: bool
+
+
+class PublicTripDriverSummary(BaseModel):
+    first_name: str
+    rating: float
+
+
+class PublicTripLocation(BaseModel):
+    latitude: float
+    longitude: float
+    heading: float | None
+    updated_at: datetime
+    age_seconds: int
+    is_stale: bool
+
+
+class PublicTripStatusResponse(BaseModel):
+    origin: str
+    destination: str
+    departure_time: datetime
+    ride_status: str
+    booking_status: BookingStatus
+    driver: PublicTripDriverSummary
+    latest_location: PublicTripLocation | None = None
+    location_visible: bool
+
+
 class BookingRideSummary(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
