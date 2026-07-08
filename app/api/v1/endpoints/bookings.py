@@ -9,6 +9,8 @@ from app.models.booking import BookingStatus
 from app.models.user import User
 from app.schemas.booking import (
     BookingCreate,
+    BoardingOtpResponse,
+    BoardingOtpVerify,
     BookingDetailResponse,
     BookingResponse,
     BookingStatusUpdate,
@@ -71,6 +73,40 @@ def get_booking_detail(
     current_user: User = Depends(get_current_user),
 ) -> BookingDetailResponse:
     return BookingService(db).get_booking_detail(booking_id, current_user)
+
+
+@router.post("/{booking_id}/boarding-code", response_model=BoardingOtpResponse)
+def issue_boarding_code(
+    booking_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    _: None = Depends(
+        rate_limit_dependency(
+            "boarding-otp-issue",
+            limit=lambda: settings.BOOKING_WRITE_RATE_LIMIT_MAX_REQUESTS,
+            window_seconds=lambda: settings.BOOKING_WRITE_RATE_LIMIT_WINDOW_SECONDS,
+        )
+    ),
+) -> BoardingOtpResponse:
+    otp, expires_at = BookingService(db).issue_boarding_otp(booking_id, current_user)
+    return BoardingOtpResponse(otp=otp, expires_at=expires_at)
+
+
+@router.post("/{booking_id}/boarding/verify", response_model=BookingResponse)
+def verify_boarding_code(
+    booking_id: int,
+    payload: BoardingOtpVerify,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+    _: None = Depends(
+        rate_limit_dependency(
+            "boarding-otp-verify",
+            limit=lambda: settings.BOOKING_WRITE_RATE_LIMIT_MAX_REQUESTS,
+            window_seconds=lambda: settings.BOOKING_WRITE_RATE_LIMIT_WINDOW_SECONDS,
+        )
+    ),
+) -> BookingResponse:
+    return BookingService(db).verify_boarding_otp(booking_id, payload.otp, current_user)
 
 
 @router.patch("/{booking_id}", response_model=BookingResponse)

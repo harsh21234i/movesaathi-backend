@@ -38,6 +38,14 @@ def upsert_presence(
     )
 
 
+@router.get("/presence", response_model=DriverPresenceResponse)
+def get_presence(
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> DriverPresenceResponse:
+    return DriverPresenceResponse.model_validate(DispatchService(db).get_driver_presence(current_user))
+
+
 @router.post("/requests", response_model=RideRequestResponse, status_code=status.HTTP_201_CREATED)
 def create_request(
     payload: RideRequestCreate,

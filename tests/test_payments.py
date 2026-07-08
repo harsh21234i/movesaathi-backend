@@ -1,3 +1,6 @@
+import hashlib
+import hmac
+import json
 from datetime import datetime, timedelta, timezone
 
 
@@ -48,8 +51,10 @@ def test_passenger_can_create_and_confirm_payment(client) -> None:
     payment = create_response.json()
     assert payment["status"] == "pending"
     assert payment["amount"] == 450
+    assert payment["amount_minor"] == 45000
     assert payment["currency"] == "INR"
-    assert payment["provider_client_secret"]
+    assert payment["provider_order_id"]
+    assert "provider_client_secret" not in payment
 
     confirm_response = client.post(f"/api/v1/payments/{payment['id']}/confirm", headers=passenger_headers)
     assert confirm_response.status_code == 200
@@ -57,6 +62,19 @@ def test_passenger_can_create_and_confirm_payment(client) -> None:
     metrics_body = client.get("/metrics").text
     assert 'moovesaathi_payment_total{event="payment_created",outcome="success"} 1' in metrics_body
     assert 'moovesaathi_payment_total{event="payment_confirmed",outcome="success"} 1' in metrics_body
+
+
+def test_payment_confirmation_is_idempotent_after_authorization(client) -> None:
+    booking_id, passenger_headers, _ = _create_booking(client)
+    payment = client.post("/api/v1/payments", headers=passenger_headers, json={"booking_id": booking_id}).json()
+
+    first = client.post(f"/api/v1/payments/{payment['id']}/confirm", headers=passenger_headers)
+    second = client.post(f"/api/v1/payments/{payment['id']}/confirm", headers=passenger_headers)
+
+    assert first.status_code == 200
+    assert second.status_code == 200
+    assert first.json()["status"] == "authorized"
+    assert second.json()["status"] == "authorized"
 
 
 def test_driver_acceptance_captures_authorized_payment(client) -> None:
@@ -71,6 +89,18 @@ def test_driver_acceptance_captures_authorized_payment(client) -> None:
     payment_detail = client.get(f"/api/v1/payments/bookings/{booking_id}", headers=driver_headers)
     assert payment_detail.status_code == 200
     assert payment_detail.json()["status"] == "captured"
+
+
+def test_payment_confirmation_after_driver_acceptance_captures_payment(client) -> None:
+    booking_id, passenger_headers, driver_headers = _create_booking(client)
+    accepted = client.patch(f"/api/v1/bookings/{booking_id}", headers=driver_headers, json={"status": "accepted"})
+    assert accepted.status_code == 200
+
+    payment = client.post("/api/v1/payments", headers=passenger_headers, json={"booking_id": booking_id}).json()
+    confirmed = client.post(f"/api/v1/payments/{payment['id']}/confirm", headers=passenger_headers)
+
+    assert confirmed.status_code == 200
+    assert confirmed.json()["status"] == "captured"
 
 
 def test_passenger_cancel_refunds_captured_payment(client) -> None:
@@ -159,11 +189,11 @@ def test_driver_acceptance_queues_capture_retry_when_provider_fails(client, monk
 
     attempts = {"count": 0}
 
-    def flaky_capture(provider_payment_id: str) -> bool:
+    def flaky_capture(self, provider_payment_id: str, *, amount_minor: int, currency: str) -> bool:
         attempts["count"] += 1
         return attempts["count"] >= 2
 
-    monkeypatch.setattr("app.services.payment_provider.payment_provider.capture_payment", flaky_capture)
+    monkeypatch.setattr("app.services.payment_provider.MockPaymentProvider.capture_payment", flaky_capture)
     monkeypatch.setattr("app.services.job_queue.settings.JOB_WORKER_RETRY_DELAY_SECONDS", 0)
 
     accepted = client.patch(f"/api/v1/bookings/{booking_id}", headers=driver_headers, json={"status": "accepted"})
@@ -187,11 +217,11 @@ def test_passenger_cancel_queues_refund_retry_when_provider_fails(client, monkey
 
     attempts = {"count": 0}
 
-    def flaky_refund(provider_payment_id: str) -> bool:
+    def flaky_refund(self, provider_payment_id: str, *, amount_minor: int) -> bool:
         attempts["count"] += 1
         return attempts["count"] >= 2
 
-    monkeypatch.setattr("app.services.payment_provider.payment_provider.refund_payment", flaky_refund)
+    monkeypatch.setattr("app.services.payment_provider.MockPaymentProvider.refund_payment", flaky_refund)
     monkeypatch.setattr("app.services.job_queue.settings.JOB_WORKER_RETRY_DELAY_SECONDS", 0)
 
     cancelled = client.patch(
@@ -209,3 +239,55 @@ def test_passenger_cancel_queues_refund_retry_when_provider_fails(client, monkey
     metrics_body = client.get("/metrics").text
     assert 'moovesaathi_payment_total{event="payment_refund",outcome="retry_queued"} 1' in metrics_body
     assert 'moovesaathi_payment_total{event="payment_refund",outcome="retry_success"} 1' in metrics_body
+
+
+def test_passenger_can_reconcile_payment(client) -> None:
+    booking_id, passenger_headers, _ = _create_booking(client)
+    payment = client.post("/api/v1/payments", headers=passenger_headers, json={"booking_id": booking_id}).json()
+
+    response = client.post(f"/api/v1/payments/{payment['id']}/reconcile", headers=passenger_headers)
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "authorized"
+
+
+def test_razorpay_webhook_requires_valid_signature(client, monkeypatch) -> None:
+    booking_id, passenger_headers, _ = _create_booking(client)
+    payment = client.post("/api/v1/payments", headers=passenger_headers, json={"booking_id": booking_id}).json()
+    monkeypatch.setattr("app.services.payment_provider.settings.PAYMENT_PROVIDER", "razorpay")
+    monkeypatch.setattr("app.services.payment_provider.settings.RAZORPAY_KEY_ID", "rzp_test_public")
+    monkeypatch.setattr("app.services.payment_provider.settings.RAZORPAY_KEY_SECRET", "server-only-key-secret")
+    monkeypatch.setattr("app.services.payment_provider.settings.RAZORPAY_WEBHOOK_SECRET", "webhook-secret")
+
+    webhook = {
+        "event": "payment.authorized",
+        "created_at": 1,
+        "payload": {
+            "payment": {
+                "entity": {
+                    "id": "pay_real_1",
+                    "order_id": payment["provider_order_id"],
+                }
+            }
+        },
+    }
+    body = json.dumps(webhook, separators=(",", ":")).encode()
+    invalid = client.post(
+        "/api/v1/payments/webhooks/razorpay",
+        content=body,
+        headers={"content-type": "application/json", "x-razorpay-signature": "invalid"},
+    )
+    assert invalid.status_code == 401
+
+    signature = hmac.new(b"webhook-secret", body, hashlib.sha256).hexdigest()
+    valid = client.post(
+        "/api/v1/payments/webhooks/razorpay",
+        content=body,
+        headers={
+            "content-type": "application/json",
+            "x-razorpay-signature": signature,
+            "x-razorpay-event-id": "razorpay-event-1",
+        },
+    )
+    assert valid.status_code == 200
+    assert valid.json()["status"] == "authorized"

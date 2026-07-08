@@ -9,6 +9,7 @@ from collections.abc import Sequence
 
 import sqlalchemy as sa
 from alembic import op
+from sqlalchemy.dialects import postgresql
 
 revision: str = "20260518_0001"
 down_revision: str | Sequence[str] | None = "20260516_0001"
@@ -16,11 +17,20 @@ branch_labels = None
 depends_on = None
 
 
-ride_request_status = sa.Enum("open", "matched", "cancelled", "expired", name="riderequeststatus")
+ride_request_status = postgresql.ENUM(
+    "open",
+    "matched",
+    "cancelled",
+    "expired",
+    name="riderequeststatus",
+    create_type=False,
+)
 
 
 def upgrade() -> None:
-    ride_request_status.create(op.get_bind(), checkfirst=True)
+    bind = op.get_bind()
+    if bind.dialect.name == "postgresql":
+        ride_request_status.create(bind, checkfirst=True)
 
     op.create_table(
         "driver_availability",
@@ -63,4 +73,6 @@ def downgrade() -> None:
     op.drop_table("ride_requests")
     op.drop_index("ix_driver_availability_online_updated", table_name="driver_availability")
     op.drop_table("driver_availability")
-    ride_request_status.drop(op.get_bind(), checkfirst=True)
+    bind = op.get_bind()
+    if bind.dialect.name == "postgresql":
+        ride_request_status.drop(bind, checkfirst=True)

@@ -18,6 +18,7 @@ class PaymentStatus(str, Enum):
 
 class PaymentProvider(str, Enum):
     mock = "mock"
+    razorpay = "razorpay"
 
 
 class Payment(Base):
@@ -32,11 +33,12 @@ class Payment(Base):
     booking_id: Mapped[int] = mapped_column(ForeignKey("bookings.id", ondelete="CASCADE"), nullable=False)
     payer_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     amount: Mapped[float] = mapped_column(Float, nullable=False)
+    amount_minor: Mapped[int] = mapped_column(Integer, nullable=False)
     currency: Mapped[str] = mapped_column(String(3), default="INR", nullable=False)
     status: Mapped[PaymentStatus] = mapped_column(SqlEnum(PaymentStatus), default=PaymentStatus.pending, nullable=False)
     provider: Mapped[PaymentProvider] = mapped_column(SqlEnum(PaymentProvider), default=PaymentProvider.mock, nullable=False)
-    provider_payment_id: Mapped[str] = mapped_column(String(120), unique=True, nullable=False)
-    provider_client_secret: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    provider_order_id: Mapped[str] = mapped_column(String(120), unique=True, nullable=False)
+    provider_payment_id: Mapped[str | None] = mapped_column(String(120), unique=True, nullable=True)
     failure_reason: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
     updated_at: Mapped[datetime] = mapped_column(

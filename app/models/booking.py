@@ -30,6 +30,9 @@ class Booking(Base):
     passenger_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"))
     status: Mapped[BookingStatus] = mapped_column(SqlEnum(BookingStatus), default=BookingStatus.pending)
     notes: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    boarding_otp_hash: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    boarding_otp_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    boarded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))
 
     ride = relationship("Ride", back_populates="bookings")

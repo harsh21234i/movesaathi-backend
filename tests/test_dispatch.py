@@ -65,6 +65,31 @@ def test_passenger_can_create_request_and_driver_can_find_it(client) -> None:
     assert nearby[0]["distance_km"] < 25
 
 
+def test_driver_can_restore_persisted_online_presence(client) -> None:
+    driver_headers = _register_and_login(client, name="Presence Driver", email="presence-driver@example.com", role="driver")
+    created = client.post(
+        "/api/v1/dispatch/presence",
+        headers=driver_headers,
+        json={"latitude": 18.6, "longitude": 73.8, "heading": 45, "is_online": True},
+    )
+    assert created.status_code == 201
+
+    restored = client.get("/api/v1/dispatch/presence", headers=driver_headers)
+
+    assert restored.status_code == 200
+    assert restored.json()["is_online"] is True
+    assert restored.json()["latitude"] == 18.6
+    assert restored.json()["longitude"] == 73.8
+
+
+def test_passenger_cannot_read_driver_presence(client) -> None:
+    passenger_headers = _register_and_login(client, name="Presence Passenger", email="presence-passenger@example.com", role="passenger")
+
+    response = client.get("/api/v1/dispatch/presence", headers=passenger_headers)
+
+    assert response.status_code == 403
+
+
 def test_driver_accepts_request_into_private_trip(client) -> None:
     passenger_headers = _register_and_login(client, name="Passenger", email="dispatch-accept-passenger@example.com", role="passenger")
     driver_headers = _register_and_login(client, name="Driver", email="dispatch-accept-driver@example.com", role="driver")
