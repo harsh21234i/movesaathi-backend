@@ -12,6 +12,13 @@ class UserRole(str, Enum):
     passenger = "passenger"
 
 
+class DriverVerificationStatus(str, Enum):
+    not_required = "not_required"
+    pending = "pending"
+    verified = "verified"
+    rejected = "rejected"
+
+
 class User(Base):
     __tablename__ = "users"
 
@@ -25,6 +32,19 @@ class User(Base):
     rating: Mapped[float] = mapped_column(Float, default=5.0)
     email_verified: Mapped[bool] = mapped_column(Boolean, default=False)
     email_verified_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    driver_verification_status: Mapped[DriverVerificationStatus] = mapped_column(
+        SqlEnum(DriverVerificationStatus),
+        default=DriverVerificationStatus.not_required,
+        nullable=False,
+    )
+    vehicle_make: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    vehicle_model: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    vehicle_color: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    vehicle_plate_number: Mapped[str | None] = mapped_column(String(30), nullable=True)
+    driver_license_number: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    driver_verification_rejection_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    driver_profile_submitted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    driver_profile_reviewed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     failed_login_attempts: Mapped[int] = mapped_column(Integer, default=0)
     locked_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))

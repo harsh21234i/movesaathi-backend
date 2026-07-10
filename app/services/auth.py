@@ -19,7 +19,7 @@ from app.core.security import (
     get_password_hash,
     verify_password,
 )
-from app.models.user import User
+from app.models.user import DriverVerificationStatus, User, UserRole
 from app.repositories.user import UserRepository
 from app.schemas.auth import (
     ForgotPasswordRequest,
@@ -70,6 +70,11 @@ class AuthService:
                 phone_number=payload.phone_number,
                 hashed_password=get_password_hash(payload.password),
                 role=payload.role,
+                driver_verification_status=(
+                    DriverVerificationStatus.pending
+                    if payload.role == UserRole.driver
+                    else DriverVerificationStatus.not_required
+                ),
             )
             saved_user = self.users.create(user)
             self.users.db.commit()

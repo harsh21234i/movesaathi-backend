@@ -17,6 +17,9 @@ class NotificationType(str, Enum):
     dispatch_matched = "dispatch_matched"
     dispatch_cancelled = "dispatch_cancelled"
     dispatch_expired = "dispatch_expired"
+    driver_verification_approved = "driver_verification_approved"
+    driver_verification_rejected = "driver_verification_rejected"
+    incident_updated = "incident_updated"
 
 
 class Notification(Base):

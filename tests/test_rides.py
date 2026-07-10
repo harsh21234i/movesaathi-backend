@@ -1,5 +1,7 @@
 from datetime import datetime, timedelta, timezone
 
+from tests.helpers import verify_driver_by_email
+
 
 def test_create_and_search_ride(client, auth_headers) -> None:
     departure_time = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
@@ -66,6 +68,8 @@ def _register_and_login(client, *, name: str, email: str, role: str) -> dict[str
         },
     )
     assert register_response.status_code == 201
+    if role == "driver":
+        verify_driver_by_email(email)
     login_response = client.post("/api/v1/auth/login", json={"email": email, "password": "Password123"})
     assert login_response.status_code == 200
     token = login_response.json()["access_token"]
