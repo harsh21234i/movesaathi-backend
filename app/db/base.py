@@ -4,6 +4,7 @@ from app.models.audit_log import AuditLog
 from app.models.message import Message
 from app.models.notification import Notification
 from app.models.payment import Payment, PaymentEvent
+from app.models.incident import IncidentReport
 from app.models.review import Review
 from app.models.dispatch import DriverAvailability, DriverRequestDismissal, RideRequest
 from app.models.ride import Ride, RideLocation
@@ -21,6 +22,7 @@ __all__ = [
     "AuditLog",
     "Payment",
     "PaymentEvent",
+    "IncidentReport",
     "DriverAvailability",
     "DriverRequestDismissal",
     "RideRequest",
