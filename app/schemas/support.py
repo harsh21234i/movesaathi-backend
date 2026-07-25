@@ -5,6 +5,7 @@ from pydantic import BaseModel, ConfigDict, EmailStr, Field
 from app.models.user import DriverVerificationStatus, UserRole
 from app.schemas.audit_log import AuditLogResponse
 from app.schemas.audit_log import AuditLogSummaryResponse
+from app.schemas.payment import PaymentResponse
 
 
 class DriverVerificationHistoryResponse(BaseModel):
@@ -54,3 +55,7 @@ class PendingDriverVerificationResponse(BaseModel):
 
 class DriverVerificationListResponse(BaseModel):
     items: list[SupportUserResponse]
+
+
+class SupportPaymentListResponse(BaseModel):
+    items: list[PaymentResponse]

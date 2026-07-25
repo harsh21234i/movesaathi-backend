@@ -6,12 +6,15 @@ from app.schemas.support import (
     DriverVerificationListResponse,
     DriverVerificationReviewRequest,
     PendingDriverVerificationResponse,
+    SupportPaymentListResponse,
     SupportUserResponse,
     SupportUserSearchResponse,
 )
 from app.models.incident import IncidentStatus
+from app.models.payment import PaymentProvider, PaymentStatus
 from app.models.user import DriverVerificationStatus
 from app.schemas.incident import IncidentListResponse, IncidentResponse, IncidentStatusUpdate
+from app.schemas.payment import PaymentResponse
 from app.services.incident import IncidentService
 from app.services.support import SupportService
 
@@ -116,3 +119,36 @@ def support_update_incident_status(
     db: Session = Depends(get_db),
 ) -> IncidentResponse:
     return IncidentService(db).update_support_status(incident_id=incident_id, payload=payload, request=request)
+
+
+@router.get("/payments", response_model=SupportPaymentListResponse)
+def support_list_payments(
+    request: Request,
+    payment_status: PaymentStatus | None = Query(default=None, alias="status"),
+    provider: PaymentProvider | None = Query(default=None),
+    booking_id: int | None = Query(default=None),
+    payer_id: int | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+) -> SupportPaymentListResponse:
+    return SupportPaymentListResponse(
+        items=SupportService(db).list_payments(
+            request=request,
+            payment_status=payment_status,
+            provider=provider,
+            booking_id=booking_id,
+            payer_id=payer_id,
+            limit=limit,
+            offset=offset,
+        )
+    )
+
+
+@router.post("/payments/{payment_id}/reconcile", response_model=PaymentResponse)
+def support_reconcile_payment(
+    payment_id: int,
+    request: Request,
+    db: Session = Depends(get_db),
+) -> PaymentResponse:
+    return SupportService(db).reconcile_payment(payment_id=payment_id, request=request)

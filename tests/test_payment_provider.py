@@ -3,9 +3,10 @@ import hmac
 from decimal import Decimal
 
 import httpx
+import pytest
 
 from app.models.payment import PaymentProvider, PaymentStatus
-from app.services.payment_provider import RazorpayPaymentProvider, to_minor_units
+from app.services.payment_provider import PaymentProviderError, RazorpayPaymentProvider, to_minor_units
 
 
 def _configure_razorpay(monkeypatch) -> None:
@@ -57,6 +58,20 @@ def test_razorpay_reconciliation_maps_provider_status(monkeypatch) -> None:
 
     assert snapshot.status == PaymentStatus.captured
     assert snapshot.provider_payment_id == "pay_123"
+
+
+def test_razorpay_provider_errors_are_normalized(monkeypatch) -> None:
+    _configure_razorpay(monkeypatch)
+
+    def fake_request(method, url, *, auth, json, timeout):
+        return httpx.Response(500, json={"error": "down"}, request=httpx.Request(method, url))
+
+    monkeypatch.setattr("app.services.payment_provider.httpx.request", fake_request)
+
+    with pytest.raises(PaymentProviderError) as exc_info:
+        RazorpayPaymentProvider().create_payment(amount_minor=45000, currency="INR", receipt="booking-7")
+
+    assert exc_info.value.status_code == 500
 
 
 def test_razorpay_webhook_signature_verification(monkeypatch) -> None:

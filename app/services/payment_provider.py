@@ -43,6 +43,12 @@ class PaymentGateway(Protocol):
     def verify_webhook_signature(self, body: bytes, signature: str) -> bool: ...
 
 
+class PaymentProviderError(RuntimeError):
+    def __init__(self, message: str, *, status_code: int | None = None) -> None:
+        super().__init__(message)
+        self.status_code = status_code
+
+
 def to_minor_units(amount: Decimal | float | int | str, currency: str) -> int:
     value = Decimal(str(amount))
     exponent = 0 if currency.upper() in {"JPY"} else 2
@@ -136,15 +142,23 @@ class RazorpayPaymentProvider:
         return hmac.compare_digest(expected, signature)
 
     def _request(self, method: str, path: str, *, json: dict[str, object] | None = None) -> dict[str, object]:
-        response = httpx.request(
-            method,
-            f"{self.base_url}{path}",
-            auth=(self.key_id, self.key_secret),
-            json=json,
-            timeout=settings.PAYMENT_PROVIDER_TIMEOUT_SECONDS,
-        )
-        response.raise_for_status()
-        return response.json()
+        try:
+            response = httpx.request(
+                method,
+                f"{self.base_url}{path}",
+                auth=(self.key_id, self.key_secret),
+                json=json,
+                timeout=settings.PAYMENT_PROVIDER_TIMEOUT_SECONDS,
+            )
+            response.raise_for_status()
+            return response.json()
+        except httpx.HTTPStatusError as exc:
+            raise PaymentProviderError(
+                "Payment provider rejected the request",
+                status_code=exc.response.status_code,
+            ) from exc
+        except httpx.RequestError as exc:
+            raise PaymentProviderError("Payment provider is unavailable") from exc
 
 
 def get_payment_provider(provider: PaymentProvider | str | None = None) -> PaymentGateway:

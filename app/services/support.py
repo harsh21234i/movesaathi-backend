@@ -12,16 +12,20 @@ from sqlalchemy.orm import sessionmaker
 
 from app.core.config import settings
 from app.models.notification import NotificationType
+from app.models.payment import Payment, PaymentProvider, PaymentStatus
 from app.models.user import DriverVerificationStatus, User, UserRole
+from app.repositories.payment import PaymentRepository
 from app.repositories.user import UserRepository
 from app.schemas.support import DriverVerificationHistoryResponse, DriverVerificationReviewRequest, SupportUserResponse
 from app.services.audit_log import AuditLogService
 from app.services.notification_jobs import enqueue_notification
+from app.services.payment import PaymentService
 
 
 class SupportService:
     def __init__(self, db: Session) -> None:
         self.users = UserRepository(db)
+        self.payments = PaymentRepository(db)
         self.audit_logs = AuditLogService(db)
         self.redis = Redis.from_url(
             settings.REDIS_URL,
@@ -136,6 +140,42 @@ class SupportService:
         self._enqueue_driver_verification_notification(saved_user)
         self._publish_driver_verification_event(saved_user)
         return self._user_response(saved_user)
+
+    def list_payments(
+        self,
+        *,
+        request: Request,
+        payment_status: PaymentStatus | None = None,
+        provider: PaymentProvider | None = None,
+        booking_id: int | None = None,
+        payer_id: int | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[Payment]:
+        self._require_support_auth(request)
+        return self.payments.list_for_operations(
+            status=payment_status,
+            provider=provider,
+            booking_id=booking_id,
+            payer_id=payer_id,
+            limit=limit,
+            offset=offset,
+        )
+
+    def reconcile_payment(self, *, payment_id: int, request: Request) -> Payment:
+        self._require_support_auth(request)
+        payment = PaymentService(self.users.db).reconcile_payment(payment_id)
+        if not payment:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Payment not found")
+        self.audit_logs.record(
+            action="support_payment_reconciled",
+            actor_user_id=None,
+            entity_type="payment",
+            entity_id=str(payment.id),
+            metadata={"booking_id": payment.booking_id, "status": payment.status.value},
+            request=request,
+        )
+        return payment
 
     def _user_response(self, user: User) -> SupportUserResponse:
         summary = self.audit_logs.summarize_my_audit_logs(user)
