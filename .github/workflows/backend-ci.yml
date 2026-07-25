@@ -27,7 +27,7 @@ jobs:
       BACKEND_CORS_ORIGINS: '["http://localhost:5173"]'
     steps:
       - name: Checkout
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Setup Python
         uses: actions/setup-python@v7
