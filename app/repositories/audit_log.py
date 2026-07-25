@@ -24,6 +24,21 @@ class AuditLogRepository:
         )
         return list(self.db.scalars(stmt))
 
+    def list_for_entity(
+        self,
+        *,
+        entity_type: str,
+        entity_id: str,
+        action_prefix: str | None = None,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> list[AuditLog]:
+        stmt = select(AuditLog).where(AuditLog.entity_type == entity_type, AuditLog.entity_id == entity_id)
+        if action_prefix:
+            stmt = stmt.where(AuditLog.action.startswith(action_prefix))
+        stmt = stmt.order_by(desc(AuditLog.created_at)).limit(limit).offset(offset)
+        return list(self.db.scalars(stmt))
+
     def count_for_user(self, user_id: int) -> int:
         stmt = select(func.count()).select_from(AuditLog).where(AuditLog.actor_user_id == user_id)
         return int(self.db.scalar(stmt) or 0)

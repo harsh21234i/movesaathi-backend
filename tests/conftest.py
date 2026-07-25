@@ -111,6 +111,17 @@ def auth_headers(client: TestClient) -> dict[str, str]:
         },
     )
     assert response.status_code == 201
+    from app.models.user import DriverVerificationStatus
+    from app.repositories.user import UserRepository
+
+    db = TestingSessionLocal()
+    try:
+        user = UserRepository(db).get_by_email("alice@example.com")
+        assert user is not None
+        user.driver_verification_status = DriverVerificationStatus.verified
+        db.commit()
+    finally:
+        db.close()
 
     login_response = client.post(
         "/api/v1/auth/login",

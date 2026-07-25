@@ -14,7 +14,7 @@ from app.models.booking import Booking, BookingStatus
 from app.models.dispatch import DriverAvailability, DriverRequestDismissal, RideRequest, RideRequestStatus
 from app.models.notification import NotificationType
 from app.models.ride import Ride, RideStatus
-from app.models.user import User, UserRole
+from app.models.user import DriverVerificationStatus, User, UserRole
 from app.repositories.booking import BookingRepository
 from app.repositories.dispatch import DispatchRepository
 from app.repositories.ride import RideRepository
@@ -49,6 +49,8 @@ class DispatchService:
     def upsert_driver_presence(self, payload: dict[str, float | bool | None], current_user: User) -> DriverAvailability:
         if current_user.role != UserRole.driver:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only driver accounts can update availability")
+        if payload.get("is_online", True):
+            self._ensure_verified_driver(current_user)
 
         existing = self.dispatch.get_driver_availability(current_user.id)
         if existing:
@@ -144,6 +146,7 @@ class DispatchService:
     def list_nearby_requests(self, current_user: User, *, limit: int = 25) -> list[dict[str, object]]:
         if current_user.role != UserRole.driver:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only driver accounts can view nearby requests")
+        self._ensure_verified_driver(current_user)
         self._expire_stale_open_requests()
         availability = self._get_fresh_driver_availability(current_user.id)
         if not availability:
@@ -166,6 +169,7 @@ class DispatchService:
     def decline_request(self, request_id: int, current_user: User) -> dict[str, object]:
         if current_user.role != UserRole.driver:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only driver accounts can decline ride requests")
+        self._ensure_verified_driver(current_user)
 
         availability = self._get_fresh_driver_availability(current_user.id)
         if not availability:
@@ -253,6 +257,7 @@ class DispatchService:
     def accept_request(self, request_id: int, current_user: User) -> dict[str, int | float | RideRequest]:
         if current_user.role != UserRole.driver:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only driver accounts can accept ride requests")
+        self._ensure_verified_driver(current_user)
 
         self._expire_stale_open_requests()
         availability = self._get_fresh_driver_availability(current_user.id)
@@ -383,6 +388,13 @@ class DispatchService:
             return None
 
         return availability
+
+    def _ensure_verified_driver(self, current_user: User) -> None:
+        if current_user.driver_verification_status != DriverVerificationStatus.verified:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Driver verification is required before going online or accepting ride requests",
+            )
 
     @staticmethod
     def _is_presence_stale(updated_at: datetime) -> bool:

@@ -52,6 +52,23 @@ class AuditLogService:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Audit logs can only be viewed for your own account")
         return self.list_my_audit_logs(current_user, limit=limit, offset=offset)
 
+    def list_entity_audit_logs(
+        self,
+        *,
+        entity_type: str,
+        entity_id: str,
+        action_prefix: str | None = None,
+        limit: int = 20,
+        offset: int = 0,
+    ) -> list[AuditLog]:
+        return self.logs.list_for_entity(
+            entity_type=entity_type,
+            entity_id=entity_id,
+            action_prefix=action_prefix,
+            limit=limit,
+            offset=offset,
+        )
+
     def summarize_my_audit_logs(self, current_user: User, *, recent_limit: int = 10) -> AuditLogSummaryResponse:
         total = self.logs.count_for_user(current_user.id)
         by_action = self.logs.counts_by_action_for_user(current_user.id)
