@@ -12,9 +12,11 @@ from sqlalchemy.orm import sessionmaker
 
 from app.core.config import settings
 from app.models.notification import NotificationType
+from app.models.booking import Booking, BookingStatus
 from app.models.payment import Payment, PaymentProvider, PaymentStatus
 from app.models.user import DriverVerificationStatus, User, UserRole
 from app.repositories.payment import PaymentRepository
+from app.repositories.booking import BookingRepository
 from app.repositories.user import UserRepository
 from app.schemas.support import DriverVerificationHistoryResponse, DriverVerificationReviewRequest, SupportUserResponse
 from app.services.audit_log import AuditLogService
@@ -26,6 +28,7 @@ class SupportService:
     def __init__(self, db: Session) -> None:
         self.users = UserRepository(db)
         self.payments = PaymentRepository(db)
+        self.bookings = BookingRepository(db)
         self.audit_logs = AuditLogService(db)
         self.redis = Redis.from_url(
             settings.REDIS_URL,
@@ -176,6 +179,29 @@ class SupportService:
             request=request,
         )
         return payment
+
+    def list_bookings(
+        self,
+        *,
+        request: Request,
+        booking_status: BookingStatus | None = None,
+        driver_id: int | None = None,
+        passenger_id: int | None = None,
+        ride_id: int | None = None,
+        boarded: bool | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[Booking]:
+        self._require_support_auth(request)
+        return self.bookings.list_for_operations(
+            status=booking_status,
+            driver_id=driver_id,
+            passenger_id=passenger_id,
+            ride_id=ride_id,
+            boarded=boarded,
+            limit=limit,
+            offset=offset,
+        )
 
     def _user_response(self, user: User) -> SupportUserResponse:
         summary = self.audit_logs.summarize_my_audit_logs(user)

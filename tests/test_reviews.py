@@ -61,6 +61,15 @@ def _create_completed_booking(client) -> tuple[int, dict[str, str], dict[str, st
     )
     assert accept_response.status_code == 200
 
+    otp_response = client.post(f"/api/v1/bookings/{booking_id}/boarding-code", headers=passenger_headers)
+    assert otp_response.status_code == 200
+    boarded_response = client.post(
+        f"/api/v1/bookings/{booking_id}/boarding/verify",
+        headers=driver_headers,
+        json={"otp": otp_response.json()["otp"]},
+    )
+    assert boarded_response.status_code == 200
+
     complete_response = client.post(f"/api/v1/rides/{ride_id}/complete", headers=driver_headers)
     assert complete_response.status_code == 200
 

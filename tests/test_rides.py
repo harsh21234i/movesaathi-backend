@@ -233,6 +233,15 @@ def test_driver_can_complete_ride_and_passenger_booking_completes(client) -> Non
     )
     assert accept_booking.status_code == 200
 
+    otp_response = client.post(f"/api/v1/bookings/{booking_id}/boarding-code", headers=passenger_headers)
+    assert otp_response.status_code == 200
+    boarded = client.post(
+        f"/api/v1/bookings/{booking_id}/boarding/verify",
+        headers=driver_headers,
+        json={"otp": otp_response.json()["otp"]},
+    )
+    assert boarded.status_code == 200
+
     complete_ride = client.post(f"/api/v1/rides/{ride_id}/complete", headers=driver_headers)
     assert complete_ride.status_code == 200
     assert complete_ride.json()["status"] == "completed"
@@ -241,6 +250,38 @@ def test_driver_can_complete_ride_and_passenger_booking_completes(client) -> Non
     booking_detail = client.get(f"/api/v1/bookings/{booking_id}", headers=passenger_headers)
     assert booking_detail.status_code == 200
     assert booking_detail.json()["status"] == "completed"
+
+
+def test_driver_cannot_complete_ride_before_passenger_boarding(client) -> None:
+    driver_headers = _register_and_login(client, name="Driver", email="ride-complete-blocked@example.com", role="driver")
+    passenger_headers = _register_and_login(
+        client,
+        name="Passenger",
+        email="ride-complete-blocked-passenger@example.com",
+        role="passenger",
+    )
+    departure_time = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
+    ride = client.post(
+        "/api/v1/rides",
+        headers=driver_headers,
+        json={
+            "origin": "Delhi",
+            "destination": "Agra",
+            "departure_time": departure_time,
+            "available_seats": 1,
+            "price_per_seat": 350,
+            "vehicle_details": "Sedan",
+        },
+    )
+    ride_id = ride.json()["id"]
+    booking = client.post("/api/v1/bookings", headers=passenger_headers, json={"ride_id": ride_id})
+    booking_id = booking.json()["id"]
+    client.patch(f"/api/v1/bookings/{booking_id}", headers=driver_headers, json={"status": "accepted"})
+
+    complete_ride = client.post(f"/api/v1/rides/{ride_id}/complete", headers=driver_headers)
+
+    assert complete_ride.status_code == 400
+    assert complete_ride.json()["detail"] == "All accepted passengers must be boarded before completing the ride"
 
 
 def test_create_ride_is_idempotent_with_same_key(client, auth_headers) -> None:

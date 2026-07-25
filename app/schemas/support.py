@@ -6,6 +6,7 @@ from app.models.user import DriverVerificationStatus, UserRole
 from app.schemas.audit_log import AuditLogResponse
 from app.schemas.audit_log import AuditLogSummaryResponse
 from app.schemas.payment import PaymentResponse
+from app.schemas.booking import DriverBookingResponse
 
 
 class DriverVerificationHistoryResponse(BaseModel):
@@ -59,3 +60,7 @@ class DriverVerificationListResponse(BaseModel):
 
 class SupportPaymentListResponse(BaseModel):
     items: list[PaymentResponse]
+
+
+class SupportBookingListResponse(BaseModel):
+    items: list[DriverBookingResponse]

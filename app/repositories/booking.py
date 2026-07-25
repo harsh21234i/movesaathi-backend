@@ -70,6 +70,37 @@ class BookingRepository:
         stmt = stmt.offset(offset).limit(limit)
         return list(self.db.scalars(stmt).unique().all())
 
+    def list_for_operations(
+        self,
+        *,
+        status: BookingStatus | None = None,
+        driver_id: int | None = None,
+        passenger_id: int | None = None,
+        ride_id: int | None = None,
+        boarded: bool | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[Booking]:
+        stmt = (
+            select(Booking)
+            .join(Ride, Booking.ride_id == Ride.id)
+            .options(joinedload(Booking.ride), joinedload(Booking.passenger), joinedload(Booking.payment))
+        )
+        if status:
+            stmt = stmt.where(Booking.status == status)
+        if driver_id:
+            stmt = stmt.where(Ride.driver_id == driver_id)
+        if passenger_id:
+            stmt = stmt.where(Booking.passenger_id == passenger_id)
+        if ride_id:
+            stmt = stmt.where(Booking.ride_id == ride_id)
+        if boarded is True:
+            stmt = stmt.where(Booking.boarded_at.is_not(None))
+        elif boarded is False:
+            stmt = stmt.where(Booking.boarded_at.is_(None))
+        stmt = stmt.order_by(Booking.created_at.desc()).limit(limit).offset(offset)
+        return list(self.db.scalars(stmt).unique().all())
+
     def list_accepted_departures_within(
         self,
         *,
