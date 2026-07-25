@@ -3,6 +3,7 @@ import hmac
 import json
 from datetime import datetime, timedelta, timezone
 
+from app.services.payment_provider import PaymentProviderError
 from tests.helpers import verify_driver_by_email
 
 
@@ -185,6 +186,47 @@ def test_payment_webhook_can_capture_payment(client) -> None:
     assert response.json()["status"] == "captured"
 
 
+def test_payment_webhook_does_not_downgrade_captured_payment(client) -> None:
+    booking_id, passenger_headers, _ = _create_booking(client)
+    payment = client.post("/api/v1/payments", headers=passenger_headers, json={"booking_id": booking_id}).json()
+
+    captured = client.post(
+        "/api/v1/payments/webhooks/mock",
+        json={
+            "provider_event_id": "evt-captured-before-authorized",
+            "event_type": "payment.captured",
+            "provider_payment_id": payment["provider_payment_id"],
+            "payload": {},
+        },
+    )
+    assert captured.status_code == 200
+    assert captured.json()["status"] == "captured"
+
+    late_authorized = client.post(
+        "/api/v1/payments/webhooks/mock",
+        json={
+            "provider_event_id": "evt-late-authorized",
+            "event_type": "payment.authorized",
+            "provider_payment_id": payment["provider_payment_id"],
+            "payload": {},
+        },
+    )
+    assert late_authorized.status_code == 200
+    assert late_authorized.json()["status"] == "captured"
+
+    late_failed = client.post(
+        "/api/v1/payments/webhooks/mock",
+        json={
+            "provider_event_id": "evt-late-failed",
+            "event_type": "payment.failed",
+            "provider_payment_id": payment["provider_payment_id"],
+            "payload": {},
+        },
+    )
+    assert late_failed.status_code == 200
+    assert late_failed.json()["status"] == "captured"
+
+
 def test_driver_acceptance_queues_capture_retry_when_provider_fails(client, monkeypatch) -> None:
     booking_id, passenger_headers, driver_headers = _create_booking(client)
     payment = client.post("/api/v1/payments", headers=passenger_headers, json={"booking_id": booking_id}).json()
@@ -253,6 +295,49 @@ def test_passenger_can_reconcile_payment(client) -> None:
 
     assert response.status_code == 200
     assert response.json()["status"] == "authorized"
+
+
+def test_payment_provider_errors_are_returned_cleanly(client, monkeypatch) -> None:
+    booking_id, passenger_headers, _ = _create_booking(client)
+    payment = client.post("/api/v1/payments", headers=passenger_headers, json={"booking_id": booking_id}).json()
+
+    def unavailable_confirm(self, provider_order_id: str):
+        raise PaymentProviderError("provider timeout")
+
+    monkeypatch.setattr("app.services.payment_provider.MockPaymentProvider.confirm_payment", unavailable_confirm)
+
+    response = client.post(f"/api/v1/payments/{payment['id']}/confirm", headers=passenger_headers)
+
+    assert response.status_code == 502
+    assert response.json()["detail"] == "Payment provider is temporarily unavailable"
+
+    payment_detail = client.get(f"/api/v1/payments/{payment['id']}", headers=passenger_headers)
+    assert payment_detail.status_code == 200
+    assert payment_detail.json()["status"] == "pending"
+
+
+def test_support_can_list_and_reconcile_payments(client, monkeypatch) -> None:
+    monkeypatch.setattr("app.core.config.settings.SUPPORT_API_ENABLED", True)
+    monkeypatch.setattr("app.core.config.settings.SUPPORT_API_KEY", "support-secret")
+    booking_id, passenger_headers, _ = _create_booking(client)
+    payment = client.post("/api/v1/payments", headers=passenger_headers, json={"booking_id": booking_id}).json()
+    support_headers = {"x-support-token": "support-secret"}
+
+    missing_token = client.get("/api/v1/support/payments")
+    assert missing_token.status_code == 401
+
+    listed = client.get(
+        "/api/v1/support/payments",
+        headers=support_headers,
+        params={"status": "pending", "booking_id": booking_id, "payer_id": payment["payer_id"]},
+    )
+    assert listed.status_code == 200
+    assert [item["id"] for item in listed.json()["items"]] == [payment["id"]]
+
+    reconciled = client.post(f"/api/v1/support/payments/{payment['id']}/reconcile", headers=support_headers)
+
+    assert reconciled.status_code == 200
+    assert reconciled.json()["status"] == "authorized"
 
 
 def test_razorpay_webhook_requires_valid_signature(client, monkeypatch) -> None:

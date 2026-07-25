@@ -9,6 +9,9 @@ def test_support_lookup_requires_token(client, monkeypatch) -> None:
     driver_verifications = client.get("/api/v1/support/driver-verifications")
     assert driver_verifications.status_code == 401
 
+    payments = client.get("/api/v1/support/payments")
+    assert payments.status_code == 401
+
 
 def test_support_lookup_returns_user_with_audit_summary(client, monkeypatch) -> None:
     monkeypatch.setattr("app.core.config.settings.SUPPORT_API_ENABLED", True)

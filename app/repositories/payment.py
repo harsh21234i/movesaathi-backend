@@ -1,7 +1,7 @@
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
-from app.models.payment import Payment, PaymentEvent
+from app.models.payment import Payment, PaymentEvent, PaymentProvider, PaymentStatus
 
 
 class PaymentRepository:
@@ -35,6 +35,28 @@ class PaymentRepository:
             .limit(limit)
             .offset(offset)
         )
+        return list(self.db.scalars(stmt))
+
+    def list_for_operations(
+        self,
+        *,
+        status: PaymentStatus | None = None,
+        provider: PaymentProvider | None = None,
+        booking_id: int | None = None,
+        payer_id: int | None = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> list[Payment]:
+        stmt = select(Payment)
+        if status:
+            stmt = stmt.where(Payment.status == status)
+        if provider:
+            stmt = stmt.where(Payment.provider == provider)
+        if booking_id:
+            stmt = stmt.where(Payment.booking_id == booking_id)
+        if payer_id:
+            stmt = stmt.where(Payment.payer_id == payer_id)
+        stmt = stmt.order_by(desc(Payment.updated_at), desc(Payment.created_at)).limit(limit).offset(offset)
         return list(self.db.scalars(stmt))
 
     def create_event(self, event: PaymentEvent) -> PaymentEvent:
