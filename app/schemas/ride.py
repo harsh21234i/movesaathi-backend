@@ -1,6 +1,7 @@
 from datetime import datetime
+from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_serializer
 
 from app.models.ride import RideStatus
 from app.schemas.user import UserResponse
@@ -15,7 +16,7 @@ class RideCreate(BaseModel):
     destination_longitude: float | None = Field(default=None, ge=-180, le=180)
     departure_time: datetime
     available_seats: int = Field(ge=1, le=10)
-    price_per_seat: float = Field(ge=0)
+    price_per_seat: Decimal = Field(ge=0, max_digits=10, decimal_places=2)
     vehicle_details: str | None = Field(default=None, max_length=150)
     notes: str | None = None
 
@@ -29,7 +30,7 @@ class RideUpdate(BaseModel):
     destination_longitude: float | None = Field(default=None, ge=-180, le=180)
     departure_time: datetime
     available_seats: int = Field(ge=0, le=10)
-    price_per_seat: float = Field(ge=0)
+    price_per_seat: Decimal = Field(ge=0, max_digits=10, decimal_places=2)
     vehicle_details: str | None = Field(default=None, max_length=150)
     notes: str | None = None
 
@@ -55,11 +56,15 @@ class RideResponse(BaseModel):
     destination_longitude: float | None
     departure_time: datetime
     available_seats: int
-    price_per_seat: float
+    price_per_seat: Decimal
     vehicle_details: str | None
     notes: str | None
     status: RideStatus
     is_active: bool
+
+    @field_serializer("price_per_seat", when_used="json")
+    def serialize_price_per_seat(self, value: Decimal) -> float:
+        return float(value)
 
 
 class RidePassengerSummary(BaseModel):

@@ -1,6 +1,7 @@
 from datetime import datetime
+from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_serializer
 
 from app.models.payment import PaymentProvider, PaymentStatus
 
@@ -16,7 +17,7 @@ class PaymentResponse(BaseModel):
     id: int
     booking_id: int
     payer_id: int
-    amount: float
+    amount: Decimal
     amount_minor: int
     currency: str
     status: PaymentStatus
@@ -27,6 +28,10 @@ class PaymentResponse(BaseModel):
     failure_reason: str | None
     created_at: datetime
     updated_at: datetime
+
+    @field_serializer("amount", when_used="json")
+    def serialize_amount(self, value: Decimal) -> float:
+        return float(value)
 
 
 class PaymentListResponse(BaseModel):
