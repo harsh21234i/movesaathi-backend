@@ -1,6 +1,7 @@
 from datetime import datetime
+from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_serializer
 
 from app.models.booking import BookingStatus
 from app.schemas.user import UserResponse
@@ -24,6 +25,41 @@ class BoardingOtpResponse(BaseModel):
     expires_at: datetime
 
 
+class BookingShareTokenResponse(BaseModel):
+    token: str
+    booking_id: int
+    created_at: datetime
+
+
+class BookingShareRevokeResponse(BaseModel):
+    revoked: bool
+
+
+class PublicTripDriverSummary(BaseModel):
+    first_name: str
+    rating: float
+
+
+class PublicTripLocation(BaseModel):
+    latitude: float
+    longitude: float
+    heading: float | None
+    updated_at: datetime
+    age_seconds: int
+    is_stale: bool
+
+
+class PublicTripStatusResponse(BaseModel):
+    origin: str
+    destination: str
+    departure_time: datetime
+    ride_status: str
+    booking_status: BookingStatus
+    driver: PublicTripDriverSummary
+    latest_location: PublicTripLocation | None = None
+    location_visible: bool
+
+
 class BookingRideSummary(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -31,9 +67,13 @@ class BookingRideSummary(BaseModel):
     origin: str
     destination: str
     departure_time: datetime
-    price_per_seat: float
+    price_per_seat: Decimal
     available_seats: int
     vehicle_details: str | None
+
+    @field_serializer("price_per_seat", when_used="json")
+    def serialize_price_per_seat(self, value: Decimal) -> float:
+        return float(value)
 
 
 class BookingPassengerSummary(BaseModel):

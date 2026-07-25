@@ -11,11 +11,14 @@ from app.schemas.booking import (
     BookingCreate,
     BoardingOtpResponse,
     BoardingOtpVerify,
+    BookingShareRevokeResponse,
+    BookingShareTokenResponse,
     BookingDetailResponse,
     BookingResponse,
     BookingStatusUpdate,
     DriverBookingResponse,
     PassengerBookingResponse,
+    PublicTripStatusResponse,
 )
 from app.services.booking import BookingService
 
@@ -107,6 +110,34 @@ def verify_boarding_code(
     ),
 ) -> BookingResponse:
     return BookingService(db).verify_boarding_otp(booking_id, payload.otp, current_user)
+
+
+@router.post("/{booking_id}/share", response_model=BookingShareTokenResponse)
+def create_share_token(
+    booking_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> BookingShareTokenResponse:
+    token, booking = BookingService(db).create_share_token(booking_id, current_user)
+    return BookingShareTokenResponse(
+        token=token,
+        booking_id=booking.id,
+        created_at=booking.share_token_created_at or booking.created_at,
+    )
+
+
+@router.delete("/{booking_id}/share", response_model=BookingShareRevokeResponse)
+def revoke_share_token(
+    booking_id: int,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+) -> BookingShareRevokeResponse:
+    return BookingShareRevokeResponse(revoked=BookingService(db).revoke_share_token(booking_id, current_user))
+
+
+@router.get("/share/{token}", response_model=PublicTripStatusResponse)
+def get_public_trip_status(token: str, db: Session = Depends(get_db)) -> PublicTripStatusResponse:
+    return PublicTripStatusResponse.model_validate(BookingService(db).get_public_trip_status(token))
 
 
 @router.patch("/{booking_id}", response_model=BookingResponse)

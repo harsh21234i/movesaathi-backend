@@ -1,6 +1,7 @@
 from datetime import datetime
+from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_serializer
 
 from app.models.dispatch import RideRequestStatus
 
@@ -51,4 +52,8 @@ class RequestAcceptanceResponse(BaseModel):
     request: RideRequestResponse
     ride_id: int
     booking_id: int
-    estimated_price_per_seat: float
+    estimated_price_per_seat: Decimal
+
+    @field_serializer("estimated_price_per_seat", when_used="json")
+    def serialize_estimated_price_per_seat(self, value: Decimal) -> float:
+        return float(value)

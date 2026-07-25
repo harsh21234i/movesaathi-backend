@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal, ROUND_HALF_UP
 from math import asin, cos, radians, sin, sqrt
 
 from fastapi import HTTPException, status
@@ -254,7 +255,7 @@ class DispatchService:
             self.dispatch.db.rollback()
             raise
 
-    def accept_request(self, request_id: int, current_user: User) -> dict[str, int | float | RideRequest]:
+    def accept_request(self, request_id: int, current_user: User) -> dict[str, int | Decimal | RideRequest]:
         if current_user.role != UserRole.driver:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Only driver accounts can accept ride requests")
         self._ensure_verified_driver(current_user)
@@ -280,13 +281,10 @@ class DispatchService:
             if distance_km > settings.DISPATCH_NEARBY_RADIUS_KM:
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Ride request is too far away")
 
-            estimated_price = round(
-                max(
-                    settings.DISPATCH_BASE_FARE,
-                    distance_km * settings.DISPATCH_PER_KM_RATE,
-                ),
-                2,
-            )
+            estimated_price = max(
+                Decimal(str(settings.DISPATCH_BASE_FARE)),
+                Decimal(str(distance_km)) * Decimal(str(settings.DISPATCH_PER_KM_RATE)),
+            ).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
             ride = Ride(
                 driver_id=current_user.id,
@@ -570,7 +568,7 @@ class DispatchService:
         )
 
     def _publish(self, channel: str, payload: dict[str, object]) -> None:
-        message = json.dumps(payload)
+        message = json.dumps(payload, default=self._json_default)
         for attempt in range(2):
             try:
                 self.redis.publish(channel, message)
@@ -588,3 +586,9 @@ class DispatchService:
             except Exception:
                 self.logger.exception("Failed to publish dispatch event on channel=%s", channel)
                 break
+
+    @staticmethod
+    def _json_default(value: object) -> object:
+        if isinstance(value, Decimal):
+            return float(value)
+        raise TypeError(f"Object of type {type(value).__name__} is not JSON serializable")

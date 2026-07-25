@@ -1,7 +1,8 @@
+from decimal import Decimal
 from datetime import datetime, timezone
 from enum import Enum
 
-from sqlalchemy import Boolean, CheckConstraint, DateTime, Enum as SqlEnum, Float, ForeignKey, Index, Integer, String, Text
+from sqlalchemy import Boolean, CheckConstraint, DateTime, Enum as SqlEnum, Float, ForeignKey, Index, Integer, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base_class import Base
@@ -33,7 +34,7 @@ class Ride(Base):
     destination_longitude: Mapped[float | None] = mapped_column(Float, nullable=True)
     departure_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), index=True)
     available_seats: Mapped[int] = mapped_column(Integer)
-    price_per_seat: Mapped[float] = mapped_column(Float)
+    price_per_seat: Mapped[Decimal] = mapped_column(Numeric(10, 2), nullable=False)
     vehicle_details: Mapped[str | None] = mapped_column(String(150), nullable=True)
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[RideStatus] = mapped_column(SqlEnum(RideStatus), default=RideStatus.scheduled)
