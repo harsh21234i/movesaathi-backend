@@ -9,6 +9,7 @@ from collections.abc import Sequence
 
 import sqlalchemy as sa
 from alembic import op
+from sqlalchemy.dialects import postgresql
 
 
 revision: str = "20260704_0001"
@@ -17,15 +18,36 @@ branch_labels = None
 depends_on = None
 
 
+incident_status_enum = postgresql.ENUM(
+    "open",
+    "reviewing",
+    "resolved",
+    "dismissed",
+    name="incidentstatus",
+    create_type=False,
+)
+
+incident_severity_enum = postgresql.ENUM(
+    "low",
+    "medium",
+    "high",
+    "emergency",
+    name="incidentseverity",
+    create_type=False,
+)
+
+
 def upgrade() -> None:
     bind = op.get_bind()
-    incidentstatus = sa.Enum("open", "reviewing", "resolved", "dismissed", name="incidentstatus")
-    incidentseverity = sa.Enum("low", "medium", "high", "emergency", name="incidentseverity")
-    incidentstatus.create(bind, checkfirst=True)
-    incidentseverity.create(bind, checkfirst=True)
-
     if bind.dialect.name == "postgresql":
+        incident_status_enum.create(bind, checkfirst=True)
+        incident_severity_enum.create(bind, checkfirst=True)
+        incidentstatus: sa.TypeEngine = incident_status_enum
+        incidentseverity: sa.TypeEngine = incident_severity_enum
         op.execute("ALTER TYPE notificationtype ADD VALUE IF NOT EXISTS 'incident_updated'")
+    else:
+        incidentstatus = sa.String(length=32)
+        incidentseverity = sa.String(length=32)
 
     op.create_table(
         "incident_reports",
@@ -62,5 +84,7 @@ def downgrade() -> None:
     op.drop_index("ix_incident_reports_status_created", table_name="incident_reports")
     op.drop_index("ix_incident_reports_id", table_name="incident_reports")
     op.drop_table("incident_reports")
-    op.execute("DROP TYPE IF EXISTS incidentseverity")
-    op.execute("DROP TYPE IF EXISTS incidentstatus")
+    bind = op.get_bind()
+    if bind.dialect.name == "postgresql":
+        incident_severity_enum.drop(bind, checkfirst=True)
+        incident_status_enum.drop(bind, checkfirst=True)
