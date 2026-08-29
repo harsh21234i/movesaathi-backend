@@ -6,11 +6,13 @@ from app.schemas.support import (
     DriverVerificationListResponse,
     DriverVerificationReviewRequest,
     PendingDriverVerificationResponse,
+    SupportBookingListResponse,
     SupportPaymentListResponse,
     SupportUserResponse,
     SupportUserSearchResponse,
 )
 from app.models.incident import IncidentStatus
+from app.models.booking import BookingStatus
 from app.models.payment import PaymentProvider, PaymentStatus
 from app.models.user import DriverVerificationStatus
 from app.schemas.incident import IncidentListResponse, IncidentResponse, IncidentStatusUpdate
@@ -139,6 +141,32 @@ def support_list_payments(
             provider=provider,
             booking_id=booking_id,
             payer_id=payer_id,
+            limit=limit,
+            offset=offset,
+        )
+    )
+
+
+@router.get("/bookings", response_model=SupportBookingListResponse)
+def support_list_bookings(
+    request: Request,
+    booking_status: BookingStatus | None = Query(default=None, alias="status"),
+    driver_id: int | None = Query(default=None),
+    passenger_id: int | None = Query(default=None),
+    ride_id: int | None = Query(default=None),
+    boarded: bool | None = Query(default=None),
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0),
+    db: Session = Depends(get_db),
+) -> SupportBookingListResponse:
+    return SupportBookingListResponse(
+        items=SupportService(db).list_bookings(
+            request=request,
+            booking_status=booking_status,
+            driver_id=driver_id,
+            passenger_id=passenger_id,
+            ride_id=ride_id,
+            boarded=boarded,
             limit=limit,
             offset=offset,
         )

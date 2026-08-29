@@ -96,6 +96,29 @@ def test_driver_acceptance_captures_authorized_payment(client) -> None:
     assert payment_detail.json()["status"] == "captured"
 
 
+def test_ride_completion_captures_authorized_payment(client) -> None:
+    booking_id, passenger_headers, driver_headers = _create_booking(client)
+    payment = client.post("/api/v1/payments", headers=passenger_headers, json={"booking_id": booking_id}).json()
+    confirmed = client.post(f"/api/v1/payments/{payment['id']}/confirm", headers=passenger_headers)
+    assert confirmed.status_code == 200
+    accepted = client.patch(f"/api/v1/bookings/{booking_id}", headers=driver_headers, json={"status": "accepted"})
+    assert accepted.status_code == 200
+    ride_id = accepted.json()["ride_id"]
+    otp_response = client.post(f"/api/v1/bookings/{booking_id}/boarding-code", headers=passenger_headers)
+    client.post(
+        f"/api/v1/bookings/{booking_id}/boarding/verify",
+        headers=driver_headers,
+        json={"otp": otp_response.json()["otp"]},
+    )
+
+    completed = client.post(f"/api/v1/rides/{ride_id}/complete", headers=driver_headers)
+
+    assert completed.status_code == 200
+    payment_detail = client.get(f"/api/v1/payments/bookings/{booking_id}", headers=driver_headers)
+    assert payment_detail.status_code == 200
+    assert payment_detail.json()["status"] == "captured"
+
+
 def test_payment_confirmation_after_driver_acceptance_captures_payment(client) -> None:
     booking_id, passenger_headers, driver_headers = _create_booking(client)
     accepted = client.patch(f"/api/v1/bookings/{booking_id}", headers=driver_headers, json={"status": "accepted"})

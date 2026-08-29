@@ -9,6 +9,7 @@ from app.core.config import settings
 from app.models.ride import Ride, RideLocation
 from app.models.booking import BookingStatus
 from app.models.notification import NotificationType
+from app.models.payment import PaymentStatus
 from app.models.ride import RideStatus
 from app.models.user import DriverVerificationStatus, User, UserRole
 from app.services.audit_log import AuditLogService
@@ -16,6 +17,7 @@ from app.repositories.ride import RideRepository
 from app.schemas.ride import RideCreate, RideLocationAccessResponse, RideLocationCreate, RideSearchParams, RideUpdate
 from app.services.notification_jobs import enqueue_notification
 from app.services.notification import NotificationService
+from app.services.payment import PaymentService
 
 
 class RideService:
@@ -23,6 +25,7 @@ class RideService:
         self.rides = RideRepository(db)
         self.notifications = NotificationService(db)
         self.audit_logs = AuditLogService(db)
+        self.payments = PaymentService(db)
         self.notification_session_factory = sessionmaker(
             bind=db.get_bind(),
             autoflush=False,
@@ -217,18 +220,30 @@ class RideService:
             if ride.status == RideStatus.completed:
                 raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Ride is already completed")
 
+            accepted_bookings = [booking for booking in ride.bookings if booking.status == BookingStatus.accepted]
+            if accepted_bookings and any(not booking.boarded_at for booking in accepted_bookings):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="All accepted passengers must be boarded before completing the ride",
+                )
+
+            for booking in accepted_bookings:
+                payment = self.payments.capture_payment_for_booking(booking.id, commit=False)
+                if payment and payment.status != PaymentStatus.captured:
+                    raise HTTPException(
+                        status_code=status.HTTP_409_CONFLICT,
+                        detail="Payment capture must complete before the ride can be completed",
+                    )
+                booking.status = BookingStatus.completed
+                enqueue_notification(
+                    session_factory=self.notification_session_factory,
+                    recipient_id=booking.passenger_id,
+                    notification_type=NotificationType.booking_completed,
+                    title="Trip completed",
+                    body=f"Your trip from {ride.origin} to {ride.destination} has been marked completed.",
+                )
             ride.status = RideStatus.completed
             ride.is_active = False
-            for booking in ride.bookings:
-                if booking.status == BookingStatus.accepted:
-                    booking.status = BookingStatus.completed
-                    enqueue_notification(
-                        session_factory=self.notification_session_factory,
-                        recipient_id=booking.passenger_id,
-                        notification_type=NotificationType.booking_completed,
-                        title="Trip completed",
-                        body=f"Your trip from {ride.origin} to {ride.destination} has been marked completed.",
-                    )
             saved_ride = self.rides.save(ride)
             self.rides.db.commit()
             self.audit_logs.record(
