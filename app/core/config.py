@@ -72,6 +72,15 @@ class Settings(BaseSettings):
     RAZORPAY_KEY_ID: str | None = None
     RAZORPAY_KEY_SECRET: str | None = None
     RAZORPAY_WEBHOOK_SECRET: str | None = None
+    AI_PROVIDER: Literal["mock", "openai"] = "mock"
+    AI_MODEL: str = "gpt-4.1-mini"
+    AI_BASE_URL: str = "https://api.openai.com/v1"
+    AI_API_KEY: str | None = None
+    AI_PROVIDER_TIMEOUT_SECONDS: float = 15.0
+    AI_TEMPERATURE: float = Field(default=0.2, ge=0, le=2)
+    AI_FALLBACK_TO_MOCK: bool = True
+    AI_RATE_LIMIT_MAX_REQUESTS: int = 10
+    AI_RATE_LIMIT_WINDOW_SECONDS: int = 60
     DATABASE_URL: str = "postgresql+psycopg://postgres:postgres@db:5432/moovesaathi"
     REDIS_URL: str = "redis://redis:6379/0"
     REDIS_SOCKET_CONNECT_TIMEOUT: float = 0.5
@@ -153,6 +162,10 @@ class Settings(BaseSettings):
             raise ValueError("Razorpay credentials and webhook secret must be configured")
         if self.is_production and self.PAYMENT_PROVIDER == "mock":
             raise ValueError("PAYMENT_PROVIDER must use a real provider in production")
+        if self.AI_PROVIDER == "openai" and not self.AI_API_KEY:
+            raise ValueError("AI_API_KEY must be configured when AI_PROVIDER is openai")
+        if self.is_production and self.AI_PROVIDER == "mock":
+            raise ValueError("AI_PROVIDER must use a real provider in production")
         return self
 
 
