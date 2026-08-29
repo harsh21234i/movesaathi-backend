@@ -4,7 +4,12 @@ from app.api.deps import get_current_user
 from app.core.config import settings
 from app.core.rate_limit import rate_limit_dependency
 from app.models.user import User, UserRole
-from app.schemas.ai import AIRideCreateAssistantRequest, AIRideCreateAssistantResponse
+from app.schemas.ai import (
+    AIRideCreateAssistantRequest,
+    AIRideCreateAssistantResponse,
+    AIRideSearchAssistantRequest,
+    AIRideSearchAssistantResponse,
+)
 from app.services.ai import AIService
 
 router = APIRouter()
@@ -28,3 +33,23 @@ def create_ride_assistant_draft(
             detail="Only driver accounts can use the ride creation assistant",
         )
     return AIService().create_ride_draft(payload)
+
+
+@router.post("/ride-search-assistant", response_model=AIRideSearchAssistantResponse)
+def create_ride_search_filters(
+    payload: AIRideSearchAssistantRequest,
+    current_user: User = Depends(get_current_user),
+    _: None = Depends(
+        rate_limit_dependency(
+            "ai-assistant",
+            limit=lambda: settings.AI_RATE_LIMIT_MAX_REQUESTS,
+            window_seconds=lambda: settings.AI_RATE_LIMIT_WINDOW_SECONDS,
+        )
+    ),
+) -> AIRideSearchAssistantResponse:
+    if current_user.role != UserRole.passenger:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only passenger accounts can use the ride search assistant",
+        )
+    return AIService().create_ride_search_filters(payload)

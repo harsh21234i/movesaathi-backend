@@ -78,8 +78,11 @@ The AI layer is backend-owned so provider secrets never reach the frontend.
 The first assistant endpoint is:
 
 - `POST /api/v1/ai/ride-create-assistant`
+- `POST /api/v1/ai/ride-search-assistant`
 
-This endpoint accepts a driver prompt such as `Going from Pune to Nagpur tomorrow 8 AM with 4 seats in Swift for Rs 500` and returns a validated ride draft with route, time, seats, price, vehicle details, missing fields, confidence, and safety notes.
+The ride creation endpoint accepts a driver prompt such as `Going from Pune to Nagpur tomorrow 8 AM with 4 seats in Swift for Rs 500` and returns a validated ride draft with route, time, seats, price, vehicle details, missing fields, confidence, and safety notes.
+
+The ride search endpoint accepts a passenger prompt such as `Find me 2 seats from Pune to Nagpur tomorrow morning under Rs 800` and returns validated search filters with route, time window, seat count, max fare, missing fields, confidence, and safety notes.
 
 Design rules:
 

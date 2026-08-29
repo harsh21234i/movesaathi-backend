@@ -91,12 +91,131 @@ def test_ai_ride_create_assistant_is_rate_limited(client, auth_headers, rate_lim
     assert client.post("/api/v1/ai/ride-create-assistant", headers=auth_headers, json=payload).status_code == 429
 
 
+def test_ai_ride_search_assistant_requires_auth(client) -> None:
+    response = client.post(
+        "/api/v1/ai/ride-search-assistant",
+        json={"prompt": "Find me 2 seats from Pune to Nagpur tomorrow morning under Rs 800"},
+    )
+
+    assert response.status_code == 401
+
+
+def test_ai_ride_search_assistant_is_passenger_only(client, auth_headers) -> None:
+    response = client.post(
+        "/api/v1/ai/ride-search-assistant",
+        headers=auth_headers,
+        json={"prompt": "Find me 2 seats from Pune to Nagpur tomorrow morning under Rs 800"},
+    )
+
+    assert response.status_code == 403
+    assert response.json()["detail"] == "Only passenger accounts can use the ride search assistant"
+
+
+def test_ai_ride_search_assistant_returns_filters_for_passenger(client) -> None:
+    passenger_headers = _register_and_login(
+        client,
+        name="Passenger",
+        email="ai-search-passenger@example.com",
+        role="passenger",
+    )
+
+    response = client.post(
+        "/api/v1/ai/ride-search-assistant",
+        headers=passenger_headers,
+        json={"prompt": "Find me 2 seats from Pune to Nagpur tomorrow morning under Rs 800"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["provider"] == "mock"
+    assert body["used_fallback"] is False
+    assert body["filters"]["origin"] == "Pune"
+    assert body["filters"]["destination"] == "Nagpur"
+    assert body["filters"]["seat_count"] == 2
+    assert body["filters"]["max_price_per_seat"] == 800.0
+    assert body["filters"]["departure_after"] is not None
+    assert body["filters"]["departure_before"] is not None
+    assert body["filters"]["confidence"] > 0.5
+
+
+def test_ai_ride_search_assistant_reports_missing_fields(client) -> None:
+    passenger_headers = _register_and_login(
+        client,
+        name="Passenger",
+        email="ai-search-missing@example.com",
+        role="passenger",
+    )
+
+    response = client.post(
+        "/api/v1/ai/ride-search-assistant",
+        headers=passenger_headers,
+        json={"prompt": "I need a comfortable ride tomorrow morning"},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert "origin" in body["filters"]["missing_fields"]
+    assert "destination" in body["filters"]["missing_fields"]
+    assert "seat_count" in body["filters"]["missing_fields"]
+
+
+def test_ai_ride_search_assistant_is_rate_limited(client, rate_limit_settings) -> None:
+    passenger_headers = _register_and_login(
+        client,
+        name="Passenger",
+        email="ai-search-rate@example.com",
+        role="passenger",
+    )
+    payload = {"prompt": "Find me 2 seats from Pune to Nagpur tomorrow morning under Rs 800"}
+
+    assert client.post("/api/v1/ai/ride-search-assistant", headers=passenger_headers, json=payload).status_code == 200
+    assert client.post("/api/v1/ai/ride-search-assistant", headers=passenger_headers, json=payload).status_code == 200
+    assert client.post("/api/v1/ai/ride-search-assistant", headers=passenger_headers, json=payload).status_code == 429
+
+
+def test_ai_ride_search_assistant_falls_back_to_mock_when_provider_fails(client, monkeypatch) -> None:
+    passenger_headers = _register_and_login(
+        client,
+        name="Passenger",
+        email="ai-search-fallback@example.com",
+        role="passenger",
+    )
+
+    class FailingProvider:
+        provider = "openai"
+        model = "broken-model"
+
+        def create_ride_draft(self, *, prompt: str, locale: str, timezone_name: str) -> dict[str, object]:
+            raise RuntimeError("provider unavailable")
+
+        def create_ride_search_filters(self, *, prompt: str, locale: str, timezone_name: str) -> dict[str, object]:
+            raise RuntimeError("provider unavailable")
+
+    from app.services import ai as ai_service_module
+
+    monkeypatch.setattr(settings, "AI_FALLBACK_TO_MOCK", True)
+    monkeypatch.setattr(ai_service_module, "get_ai_provider", lambda: FailingProvider())
+
+    response = client.post(
+        "/api/v1/ai/ride-search-assistant",
+        headers=passenger_headers,
+        json={"prompt": "Find me 2 seats from Pune to Nagpur tomorrow morning under Rs 800"},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["provider"] == "mock"
+    assert response.json()["used_fallback"] is True
+
+
 def test_ai_service_falls_back_to_mock_when_provider_fails(client, auth_headers, monkeypatch) -> None:
     class FailingProvider:
         provider = "openai"
         model = "broken-model"
 
         def create_ride_draft(self, *, prompt: str, locale: str, timezone_name: str) -> dict[str, object]:
+            raise RuntimeError("provider unavailable")
+
+        def create_ride_search_filters(self, *, prompt: str, locale: str, timezone_name: str) -> dict[str, object]:
             raise RuntimeError("provider unavailable")
 
     from app.services import ai as ai_service_module
