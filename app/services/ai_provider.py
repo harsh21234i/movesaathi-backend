@@ -21,6 +21,16 @@ class AIProvider(Protocol):
 
     def create_ride_draft(self, *, prompt: str, locale: str, timezone_name: str) -> dict[str, object]: ...
 
+    def suggest_chat_reply(
+        self,
+        *,
+        intent: str,
+        draft_message: str | None,
+        sender_role: str,
+        booking_context: dict[str, object],
+        locale: str,
+    ) -> dict[str, object]: ...
+
 
 class MockAIProvider:
     provider = "mock"
@@ -60,6 +70,45 @@ class MockAIProvider:
                 "Confirm exact pickup point before publishing.",
                 "Avoid sharing private payment details in notes.",
             ],
+        }
+
+    def suggest_chat_reply(
+        self,
+        *,
+        intent: str,
+        draft_message: str | None,
+        sender_role: str,
+        booking_context: dict[str, object],
+        locale: str,
+    ) -> dict[str, object]:
+        origin = str(booking_context.get("origin") or "pickup")
+        destination = str(booking_context.get("destination") or "destination")
+        vehicle = booking_context.get("vehicle_details") or "vehicle"
+        is_driver = sender_role == "driver"
+        templates = {
+            "ask_pickup_confirmation": "Could you please confirm the exact pickup point and preferred landmark?",
+            "share_arrival_update": "I am on the way and will share an update if the arrival time changes.",
+            "confirm_luggage": "Could you please confirm if you are carrying luggage, so we can plan space comfortably?",
+            "delay_apology": "Sorry for the delay. I will keep you updated and coordinate the pickup clearly.",
+            "general_reply": "Thanks for the update. Let us confirm the pickup point and timing before the ride.",
+        }
+        suggestion = templates.get(intent, templates["general_reply"])
+        if is_driver and intent == "share_arrival_update":
+            suggestion = f"I am heading toward the pickup point for the {origin} to {destination} ride in my {vehicle}. I will keep you updated."
+        elif not is_driver and intent == "ask_pickup_confirmation":
+            suggestion = f"Hi, could you please confirm the pickup point and arrival time for the {origin} to {destination} ride?"
+
+        notes = ["Do not share the boarding OTP until you meet the driver in person."]
+        should_warn = False
+        if draft_message and re.search(r"\b(otp|password|card|cvv|upi pin|pin)\b", draft_message, flags=re.IGNORECASE):
+            should_warn = True
+            notes.append("The draft may contain sensitive information. Avoid sharing OTPs, passwords, card details, CVV, or UPI PINs.")
+
+        return {
+            "suggestion": suggestion,
+            "tone": "safety_warning" if should_warn else "polite",
+            "should_warn": should_warn,
+            "safety_notes": notes,
         }
 
     def _extract_route(self, text: str) -> tuple[str | None, str | None]:
@@ -174,6 +223,53 @@ class OpenAICompatibleProvider:
             return parsed
         except (KeyError, json.JSONDecodeError, httpx.HTTPError) as exc:
             raise AIProviderError("AI provider failed to return a valid ride draft") from exc
+
+    def suggest_chat_reply(
+        self,
+        *,
+        intent: str,
+        draft_message: str | None,
+        sender_role: str,
+        booking_context: dict[str, object],
+        locale: str,
+    ) -> dict[str, object]:
+        system_prompt = (
+            "You write safe, concise ride-sharing chat suggestions. "
+            "Return only JSON with keys: suggestion, tone, should_warn, safety_notes. "
+            "Do not ask users to share OTPs, card details, CVV, passwords, or UPI PINs. "
+            "If the draft contains sensitive content, set should_warn true and use tone safety_warning."
+        )
+        user_prompt = (
+            f"Locale: {locale}\n"
+            f"Sender role: {sender_role}\n"
+            f"Intent: {intent}\n"
+            f"Booking context: {json.dumps(booking_context, default=str)}\n"
+            f"Draft message: {draft_message or ''}"
+        )
+        payload = {
+            "model": self.model,
+            "temperature": settings.AI_TEMPERATURE,
+            "response_format": {"type": "json_object"},
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+        }
+        try:
+            response = httpx.post(
+                f"{self.base_url}/chat/completions",
+                headers={"Authorization": f"Bearer {settings.AI_API_KEY}"},
+                json=payload,
+                timeout=settings.AI_PROVIDER_TIMEOUT_SECONDS,
+            )
+            response.raise_for_status()
+            content = response.json()["choices"][0]["message"]["content"]
+            parsed = json.loads(content)
+            if not isinstance(parsed, dict):
+                raise AIProviderError("AI provider returned non-object JSON")
+            return parsed
+        except (KeyError, json.JSONDecodeError, httpx.HTTPError) as exc:
+            raise AIProviderError("AI provider failed to return a valid chat suggestion") from exc
 
 
 def get_ai_provider() -> AIProvider:

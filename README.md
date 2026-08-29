@@ -78,15 +78,18 @@ The AI layer is backend-owned so provider secrets never reach the frontend.
 The first assistant endpoint is:
 
 - `POST /api/v1/ai/ride-create-assistant`
+- `POST /api/v1/ai/chat-suggestion`
 
 This endpoint accepts a driver prompt such as `Going from Pune to Nagpur tomorrow 8 AM with 4 seats in Swift for Rs 500` and returns a validated ride draft with route, time, seats, price, vehicle details, missing fields, confidence, and safety notes.
+
+The chat suggestion endpoint accepts a booking ID, message intent, and optional rough draft. It verifies the caller is the booking passenger or driver, then returns a polite ride-specific reply with safety warnings for sensitive content such as OTPs, card details, passwords, CVV, or UPI PINs.
 
 Design rules:
 
 - frontend sends natural language to the backend only
 - backend calls the configured AI provider
 - AI must return structured JSON
-- Pydantic validates the draft before returning it
+- Pydantic validates AI output before returning it
 - mock provider is used for local development and tests
 - OpenAI-compatible provider can be enabled through environment variables
 - rate limits protect paid AI endpoints
