@@ -40,6 +40,7 @@ The backend is organized as a modular monolith:
 - Notifications with unread counts and filtering
 - Audit logs for sensitive actions
 - Support lookup endpoints with audit summaries
+- GenAI ride creation assistant with structured JSON validation
 - Metrics, request IDs, structured errors, and health checks
 
 ## API Surface
@@ -57,6 +58,7 @@ Main API groups:
 - `/api/v1/reviews`
 - `/api/v1/audit`
 - `/api/v1/support`
+- `/api/v1/ai`
 
 ## Tech Stack
 
@@ -67,7 +69,27 @@ Main API groups:
 - Redis
 - JWT authentication
 - WebSockets
+- OpenAI-compatible LLM provider support
 - Pytest
+
+## GenAI Assistant
+
+The AI layer is backend-owned so provider secrets never reach the frontend.
+The first assistant endpoint is:
+
+- `POST /api/v1/ai/ride-create-assistant`
+
+This endpoint accepts a driver prompt such as `Going from Pune to Nagpur tomorrow 8 AM with 4 seats in Swift for Rs 500` and returns a validated ride draft with route, time, seats, price, vehicle details, missing fields, confidence, and safety notes.
+
+Design rules:
+
+- frontend sends natural language to the backend only
+- backend calls the configured AI provider
+- AI must return structured JSON
+- Pydantic validates the draft before returning it
+- mock provider is used for local development and tests
+- OpenAI-compatible provider can be enabled through environment variables
+- rate limits protect paid AI endpoints
 
 ## Quick Start
 
@@ -252,6 +274,15 @@ Important environment variables:
 - `FRONTEND_URL`
 - `BACKEND_CORS_ORIGINS`
 - `AUTO_CREATE_TABLES`
+- `AI_PROVIDER=mock|openai`
+- `AI_MODEL`
+- `AI_BASE_URL`
+- `AI_API_KEY`
+- `AI_PROVIDER_TIMEOUT_SECONDS`
+- `AI_TEMPERATURE`
+- `AI_FALLBACK_TO_MOCK`
+- `AI_RATE_LIMIT_MAX_REQUESTS`
+- `AI_RATE_LIMIT_WINDOW_SECONDS`
 
 Production notes:
 

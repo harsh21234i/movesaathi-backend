@@ -143,3 +143,4 @@ def rate_limit_settings(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(settings, "BOOKING_WRITE_RATE_LIMIT_MAX_REQUESTS", 2)
     monkeypatch.setattr(settings, "LOCATION_UPDATE_RATE_LIMIT_MAX_REQUESTS", 2)
     monkeypatch.setattr(settings, "REVIEW_CREATE_RATE_LIMIT_MAX_REQUESTS", 2)
+    monkeypatch.setattr(settings, "AI_RATE_LIMIT_MAX_REQUESTS", 2)
