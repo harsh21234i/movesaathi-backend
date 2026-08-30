@@ -1,5 +1,6 @@
 from datetime import datetime
 from decimal import Decimal
+from typing import Literal
 
 from pydantic import BaseModel, Field, field_serializer
 
@@ -62,3 +63,31 @@ class AIRideSearchAssistantResponse(BaseModel):
     model: str
     used_fallback: bool
     filters: AIRideSearchFilters
+
+
+class AIChatSuggestionRequest(BaseModel):
+    booking_id: int = Field(gt=0)
+    intent: Literal[
+        "ask_pickup_confirmation",
+        "share_arrival_update",
+        "confirm_luggage",
+        "delay_apology",
+        "general_reply",
+    ] = "general_reply"
+    draft_message: str | None = Field(default=None, max_length=1000)
+    locale: str = Field(default="en-IN", min_length=2, max_length=16)
+
+
+class AIChatSuggestion(BaseModel):
+    suggestion: str = Field(min_length=1, max_length=500)
+    tone: Literal["polite", "friendly", "concise", "safety_warning"] = "polite"
+    should_warn: bool = False
+    safety_notes: list[str] = Field(default_factory=list)
+
+
+class AIChatSuggestionResponse(BaseModel):
+    provider: str
+    model: str
+    used_fallback: bool
+    booking_summary: str
+    result: AIChatSuggestion

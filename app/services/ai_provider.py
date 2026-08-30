@@ -23,6 +23,16 @@ class AIProvider(Protocol):
 
     def create_ride_search_filters(self, *, prompt: str, locale: str, timezone_name: str) -> dict[str, object]: ...
 
+    def suggest_chat_reply(
+        self,
+        *,
+        intent: str,
+        draft_message: str | None,
+        sender_role: str,
+        booking_context: dict[str, object],
+        locale: str,
+    ) -> dict[str, object]: ...
+
 
 class MockAIProvider:
     provider = "mock"
@@ -97,6 +107,50 @@ class MockAIProvider:
             ],
         }
 
+    def suggest_chat_reply(
+        self,
+        *,
+        intent: str,
+        draft_message: str | None,
+        sender_role: str,
+        booking_context: dict[str, object],
+        locale: str,
+    ) -> dict[str, object]:
+        origin = str(booking_context.get("origin") or "pickup")
+        destination = str(booking_context.get("destination") or "destination")
+        vehicle = booking_context.get("vehicle_details") or "vehicle"
+        is_driver = sender_role == "driver"
+        templates = {
+            "ask_pickup_confirmation": "Could you please confirm the exact pickup point and preferred landmark?",
+            "share_arrival_update": "I am on the way and will share an update if the arrival time changes.",
+            "confirm_luggage": "Could you please confirm if you are carrying luggage, so we can plan space comfortably?",
+            "delay_apology": "Sorry for the delay. I will keep you updated and coordinate the pickup clearly.",
+            "general_reply": "Thanks for the update. Let us confirm the pickup point and timing before the ride.",
+        }
+        suggestion = templates.get(intent, templates["general_reply"])
+        if is_driver and intent == "share_arrival_update":
+            suggestion = (
+                f"I am heading toward the pickup point for the {origin} to {destination} ride "
+                f"in my {vehicle}. I will keep you updated."
+            )
+        elif not is_driver and intent == "ask_pickup_confirmation":
+            suggestion = f"Hi, could you please confirm the pickup point and arrival time for the {origin} to {destination} ride?"
+
+        notes = ["Do not share the boarding OTP until you meet the driver in person."]
+        should_warn = False
+        if draft_message and re.search(r"\b(otp|password|card|cvv|upi pin|pin)\b", draft_message, flags=re.IGNORECASE):
+            should_warn = True
+            notes.append(
+                "The draft may contain sensitive information. Avoid sharing OTPs, passwords, card details, CVV, or UPI PINs."
+            )
+
+        return {
+            "suggestion": suggestion,
+            "tone": "safety_warning" if should_warn else "polite",
+            "should_warn": should_warn,
+            "safety_notes": notes,
+        }
+
     def _extract_route(self, text: str) -> tuple[str | None, str | None]:
         match = re.search(
             r"\bfrom\s+([A-Za-z\s,.-]{2,80}?)\s+to\s+([A-Za-z\s,.-]{2,80}?)(?:\s+(?:on|at|by|with|in|for|tomorrow|today)\b|[,.;]|$)",
@@ -169,7 +223,11 @@ class MockAIProvider:
         elif "night" in lower_text:
             start, end = time(21, 0), time(23, 59)
         else:
-            explicit_time = re.search(r"\b([0-1]?[0-9]|2[0-3])(?::([0-5][0-9]))\s*(am|pm)?\b", text, flags=re.IGNORECASE)
+            explicit_time = re.search(
+                r"\b([0-1]?[0-9]|2[0-3])(?::([0-5][0-9]))\s*(am|pm)?\b",
+                text,
+                flags=re.IGNORECASE,
+            )
             if explicit_time:
                 hour = int(explicit_time.group(1))
                 minute = int(explicit_time.group(2) or 0)
@@ -261,6 +319,34 @@ class OpenAICompatibleProvider:
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             error_message="AI provider failed to return valid ride search filters",
+        )
+
+    def suggest_chat_reply(
+        self,
+        *,
+        intent: str,
+        draft_message: str | None,
+        sender_role: str,
+        booking_context: dict[str, object],
+        locale: str,
+    ) -> dict[str, object]:
+        system_prompt = (
+            "You write safe, concise ride-sharing chat suggestions. "
+            "Return only JSON with keys: suggestion, tone, should_warn, safety_notes. "
+            "Do not ask users to share OTPs, card details, CVV, passwords, or UPI PINs. "
+            "If the draft contains sensitive content, set should_warn true and use tone safety_warning."
+        )
+        user_prompt = (
+            f"Locale: {locale}\n"
+            f"Sender role: {sender_role}\n"
+            f"Intent: {intent}\n"
+            f"Booking context: {json.dumps(booking_context, default=str)}\n"
+            f"Draft message: {draft_message or ''}"
+        )
+        return self._json_chat_completion(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            error_message="AI provider failed to return a valid chat suggestion",
         )
 
     def _json_chat_completion(self, *, system_prompt: str, user_prompt: str, error_message: str) -> dict[str, object]:
