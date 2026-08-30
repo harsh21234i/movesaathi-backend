@@ -10,6 +10,8 @@ from app.schemas.ai import (
     AIChatSuggestionResponse,
     AIRideCreateAssistantRequest,
     AIRideCreateAssistantResponse,
+    AIRideSearchAssistantRequest,
+    AIRideSearchAssistantResponse,
 )
 from app.services.ai import AIService
 
@@ -34,6 +36,26 @@ def create_ride_assistant_draft(
             detail="Only driver accounts can use the ride creation assistant",
         )
     return AIService().create_ride_draft(payload)
+
+
+@router.post("/ride-search-assistant", response_model=AIRideSearchAssistantResponse)
+def create_ride_search_filters(
+    payload: AIRideSearchAssistantRequest,
+    current_user: User = Depends(get_current_user),
+    _: None = Depends(
+        rate_limit_dependency(
+            "ai-assistant",
+            limit=lambda: settings.AI_RATE_LIMIT_MAX_REQUESTS,
+            window_seconds=lambda: settings.AI_RATE_LIMIT_WINDOW_SECONDS,
+        )
+    ),
+) -> AIRideSearchAssistantResponse:
+    if current_user.role != UserRole.passenger:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Only passenger accounts can use the ride search assistant",
+        )
+    return AIService().create_ride_search_filters(payload)
 
 
 @router.post("/chat-suggestion", response_model=AIChatSuggestionResponse)

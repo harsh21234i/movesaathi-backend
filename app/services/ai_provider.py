@@ -21,6 +21,8 @@ class AIProvider(Protocol):
 
     def create_ride_draft(self, *, prompt: str, locale: str, timezone_name: str) -> dict[str, object]: ...
 
+    def create_ride_search_filters(self, *, prompt: str, locale: str, timezone_name: str) -> dict[str, object]: ...
+
     def suggest_chat_reply(
         self,
         *,
@@ -72,6 +74,39 @@ class MockAIProvider:
             ],
         }
 
+    def create_ride_search_filters(self, *, prompt: str, locale: str, timezone_name: str) -> dict[str, object]:
+        text = " ".join(prompt.split())
+        origin, destination = self._extract_route(text)
+        seats = self._extract_seats(text)
+        price = self._extract_price(text)
+        departure_after, departure_before = self._extract_departure_window(text)
+        missing_fields = [
+            field
+            for field, value in {
+                "origin": origin,
+                "destination": destination,
+                "departure_after": departure_after,
+                "seat_count": seats,
+            }.items()
+            if value is None
+        ]
+
+        return {
+            "origin": origin,
+            "destination": destination,
+            "departure_after": departure_after.isoformat() if departure_after else None,
+            "departure_before": departure_before.isoformat() if departure_before else None,
+            "seat_count": seats,
+            "max_price_per_seat": str(price) if price is not None else None,
+            "missing_fields": missing_fields,
+            "confidence": max(0.35, 1 - (len(missing_fields) * 0.12)),
+            "search_summary": self._build_search_summary(origin, destination, seats, price),
+            "safety_notes": [
+                "Confirm pickup point and vehicle details before boarding.",
+                "Pay only through the platform-supported payment flow.",
+            ],
+        }
+
     def suggest_chat_reply(
         self,
         *,
@@ -94,7 +129,10 @@ class MockAIProvider:
         }
         suggestion = templates.get(intent, templates["general_reply"])
         if is_driver and intent == "share_arrival_update":
-            suggestion = f"I am heading toward the pickup point for the {origin} to {destination} ride in my {vehicle}. I will keep you updated."
+            suggestion = (
+                f"I am heading toward the pickup point for the {origin} to {destination} ride "
+                f"in my {vehicle}. I will keep you updated."
+            )
         elif not is_driver and intent == "ask_pickup_confirmation":
             suggestion = f"Hi, could you please confirm the pickup point and arrival time for the {origin} to {destination} ride?"
 
@@ -102,7 +140,9 @@ class MockAIProvider:
         should_warn = False
         if draft_message and re.search(r"\b(otp|password|card|cvv|upi pin|pin)\b", draft_message, flags=re.IGNORECASE):
             should_warn = True
-            notes.append("The draft may contain sensitive information. Avoid sharing OTPs, passwords, card details, CVV, or UPI PINs.")
+            notes.append(
+                "The draft may contain sensitive information. Avoid sharing OTPs, passwords, card details, CVV, or UPI PINs."
+            )
 
         return {
             "suggestion": suggestion,
@@ -126,7 +166,9 @@ class MockAIProvider:
         return int(match.group(1)) if match else None
 
     def _extract_price(self, text: str) -> Decimal | None:
-        match = re.search(r"(?:₹|rs\.?|inr)\s*([0-9]{1,6})(?:\s*(?:per seat|each))?", text, flags=re.IGNORECASE)
+        match = re.search(r"(?:rs\.?|inr)\s*([0-9]{1,6})(?:\s*(?:per seat|each))?", text, flags=re.IGNORECASE)
+        if not match:
+            match = re.search(r"\b(?:under|below|max|maximum|budget)\s*([0-9]{2,6})\b", text, flags=re.IGNORECASE)
         if not match:
             match = re.search(r"\b([0-9]{2,6})\s*(?:per seat|each)\b", text, flags=re.IGNORECASE)
         return Decimal(match.group(1)) if match else None
@@ -159,6 +201,49 @@ class MockAIProvider:
 
         return datetime.combine(date_value or now.date(), time(hour, minute), tzinfo=timezone.utc)
 
+    def _extract_departure_window(self, text: str) -> tuple[datetime | None, datetime | None]:
+        now = datetime.now(timezone.utc)
+        if re.search(r"\btomorrow\b", text, flags=re.IGNORECASE):
+            date_value = now.date() + timedelta(days=1)
+        elif re.search(r"\btoday\b", text, flags=re.IGNORECASE):
+            date_value = now.date()
+        else:
+            date_value = None
+
+        if date_value is None:
+            return None, None
+
+        lower_text = text.lower()
+        if "morning" in lower_text:
+            start, end = time(5, 0), time(12, 0)
+        elif "afternoon" in lower_text:
+            start, end = time(12, 0), time(17, 0)
+        elif "evening" in lower_text:
+            start, end = time(17, 0), time(21, 0)
+        elif "night" in lower_text:
+            start, end = time(21, 0), time(23, 59)
+        else:
+            explicit_time = re.search(
+                r"\b([0-1]?[0-9]|2[0-3])(?::([0-5][0-9]))\s*(am|pm)?\b",
+                text,
+                flags=re.IGNORECASE,
+            )
+            if explicit_time:
+                hour = int(explicit_time.group(1))
+                minute = int(explicit_time.group(2) or 0)
+                meridiem = explicit_time.group(3)
+                if meridiem:
+                    meridiem = meridiem.lower()
+                    if meridiem == "pm" and hour < 12:
+                        hour += 12
+                    if meridiem == "am" and hour == 12:
+                        hour = 0
+                start_datetime = datetime.combine(date_value, time(hour, minute), tzinfo=timezone.utc)
+                return start_datetime, start_datetime + timedelta(hours=3)
+            start, end = time(0, 0), time(23, 59)
+
+        return datetime.combine(date_value, start, tzinfo=timezone.utc), datetime.combine(date_value, end, tzinfo=timezone.utc)
+
     def _extract_vehicle(self, text: str) -> str | None:
         vehicle_match = re.search(
             r"\b(swift|ertiga|innova|sedan|hatchback|suv|dzire|baleno|creta|wagonr|wagon r)\b",
@@ -172,6 +257,18 @@ class MockAIProvider:
     def _build_notes(self, text: str) -> str:
         clipped = text[:220]
         return f"AI draft from driver note: {clipped}"
+
+    def _build_search_summary(
+        self,
+        origin: str | None,
+        destination: str | None,
+        seats: int | None,
+        price: Decimal | None,
+    ) -> str:
+        route = f"{origin or 'Any origin'} to {destination or 'any destination'}"
+        seat_text = f"{seats} seat{'s' if seats != 1 else ''}" if seats else "any seat count"
+        price_text = f"under Rs {price}" if price is not None else "any fare"
+        return f"Search rides for {route}, {seat_text}, {price_text}."
 
     def _clean_place(self, value: str) -> str:
         return re.sub(r"\s+", " ", value.strip(" ,.-")).title()
@@ -199,30 +296,30 @@ class OpenAICompatibleProvider:
             f"Current UTC time: {datetime.now(timezone.utc).isoformat()}\n"
             f"Driver text: {prompt}"
         )
-        payload = {
-            "model": self.model,
-            "temperature": settings.AI_TEMPERATURE,
-            "response_format": {"type": "json_object"},
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-        }
-        try:
-            response = httpx.post(
-                f"{self.base_url}/chat/completions",
-                headers={"Authorization": f"Bearer {settings.AI_API_KEY}"},
-                json=payload,
-                timeout=settings.AI_PROVIDER_TIMEOUT_SECONDS,
-            )
-            response.raise_for_status()
-            content = response.json()["choices"][0]["message"]["content"]
-            parsed = json.loads(content)
-            if not isinstance(parsed, dict):
-                raise AIProviderError("AI provider returned non-object JSON")
-            return parsed
-        except (KeyError, json.JSONDecodeError, httpx.HTTPError) as exc:
-            raise AIProviderError("AI provider failed to return a valid ride draft") from exc
+        return self._json_chat_completion(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            error_message="AI provider failed to return a valid ride draft",
+        )
+
+    def create_ride_search_filters(self, *, prompt: str, locale: str, timezone_name: str) -> dict[str, object]:
+        system_prompt = (
+            "You convert ride-sharing passenger text into strict JSON search filters. "
+            "Return only JSON with keys: origin, destination, departure_after, departure_before, "
+            "seat_count, max_price_per_seat, missing_fields, confidence, search_summary, safety_notes. "
+            "Use ISO 8601 datetimes, null for unknown fields, and do not invent exact places or prices."
+        )
+        user_prompt = (
+            f"Locale: {locale}\n"
+            f"Timezone: {timezone_name}\n"
+            f"Current UTC time: {datetime.now(timezone.utc).isoformat()}\n"
+            f"Passenger text: {prompt}"
+        )
+        return self._json_chat_completion(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            error_message="AI provider failed to return valid ride search filters",
+        )
 
     def suggest_chat_reply(
         self,
@@ -246,6 +343,13 @@ class OpenAICompatibleProvider:
             f"Booking context: {json.dumps(booking_context, default=str)}\n"
             f"Draft message: {draft_message or ''}"
         )
+        return self._json_chat_completion(
+            system_prompt=system_prompt,
+            user_prompt=user_prompt,
+            error_message="AI provider failed to return a valid chat suggestion",
+        )
+
+    def _json_chat_completion(self, *, system_prompt: str, user_prompt: str, error_message: str) -> dict[str, object]:
         payload = {
             "model": self.model,
             "temperature": settings.AI_TEMPERATURE,
@@ -269,7 +373,7 @@ class OpenAICompatibleProvider:
                 raise AIProviderError("AI provider returned non-object JSON")
             return parsed
         except (KeyError, json.JSONDecodeError, httpx.HTTPError) as exc:
-            raise AIProviderError("AI provider failed to return a valid chat suggestion") from exc
+            raise AIProviderError(error_message) from exc
 
 
 def get_ai_provider() -> AIProvider:
