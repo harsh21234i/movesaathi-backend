@@ -39,6 +39,36 @@ def test_register_login_and_me(client) -> None:
     assert me_response.json()["email"] == "test@example.com"
 
 
+def test_auth_fails_closed_when_redis_is_unavailable_in_production(client, monkeypatch) -> None:
+    client.post("/api/v1/auth/register", json={
+        "full_name": "Redis Auth User", "email": "redis-auth@example.com", "password": "Password123"
+    })
+    login = client.post("/api/v1/auth/login", json={
+        "email": "redis-auth@example.com", "password": "Password123"
+    })
+    token = login.json()["access_token"]
+    monkeypatch.setattr("app.core.config.settings.APP_ENV", "production")
+
+    response = client.get("/api/v1/users/me", headers={"Authorization": f"Bearer {token}"})
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Authentication state is temporarily unavailable"
+
+
+def test_login_does_not_issue_a_session_when_redis_is_unavailable_in_production(client, monkeypatch) -> None:
+    client.post("/api/v1/auth/register", json={
+        "full_name": "Redis Login User", "email": "redis-login@example.com", "password": "Password123"
+    })
+    monkeypatch.setattr("app.core.config.settings.APP_ENV", "production")
+
+    response = client.post("/api/v1/auth/login", json={
+        "email": "redis-login@example.com", "password": "Password123"
+    })
+
+    assert response.status_code == 503
+    assert response.json()["detail"] == "Authentication state is temporarily unavailable"
+
+
 def test_register_queues_verification_email_without_waiting_on_delivery(client, monkeypatch) -> None:
     queued: list[str] = []
 

@@ -126,8 +126,8 @@ async def dispatch_socket(websocket: WebSocket, token: str) -> None:
     try:
         try:
             user = get_user_from_access_token(db, token)
-        except HTTPException:
-            await websocket.close(code=1008)
+        except HTTPException as exc:
+            await websocket.close(code=1013 if exc.status_code == status.HTTP_503_SERVICE_UNAVAILABLE else 1008)
             return
 
         if not user:

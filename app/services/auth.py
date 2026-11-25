@@ -230,11 +230,11 @@ class AuthService:
             raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found")
 
         try:
+            token_store.revoke_user_sessions(user.id)
+            revoke_token_from_payload(reset_payload)
             user.hashed_password = get_password_hash(payload.new_password)
             self.users.save(user)
             self.users.db.commit()
-            revoke_token_from_payload(reset_payload)
-            token_store.revoke_user_sessions(user.id)
             metrics.record_auth(event="password_reset_completed")
             self.audit_logs.record(
                 action="password_reset_completed",
@@ -251,12 +251,12 @@ class AuthService:
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Current password is incorrect")
 
         try:
+            token_payload = self._decode_expected_token(access_token, expected_type="access")
+            token_store.revoke_user_sessions(current_user.id)
+            revoke_token_from_payload(token_payload)
             current_user.hashed_password = get_password_hash(payload.new_password)
             self.users.save(current_user)
             self.users.db.commit()
-            token_payload = self._decode_expected_token(access_token, expected_type="access")
-            revoke_token_from_payload(token_payload)
-            token_store.revoke_user_sessions(current_user.id)
             enqueue_session_cleanup(user_id=current_user.id)
             enqueue_audit_log_retention(session_factory=self.retention_session_factory, retention_days=90)
             self.audit_logs.record(

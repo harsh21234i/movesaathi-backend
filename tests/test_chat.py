@@ -75,6 +75,23 @@ def test_websockets_reject_non_access_tokens(client) -> None:
             pass
 
 
+def test_websockets_close_retryably_when_redis_is_unavailable_in_production(client, monkeypatch) -> None:
+    client.post("/api/v1/auth/register", json={
+        "full_name": "Redis Socket User", "email": "redis-socket@example.com", "password": "Password123"
+    })
+    login = client.post("/api/v1/auth/login", json={
+        "email": "redis-socket@example.com", "password": "Password123"
+    })
+    token = login.json()["access_token"]
+    monkeypatch.setattr("app.core.config.settings.APP_ENV", "production")
+
+    with pytest.raises(WebSocketDisconnect) as disconnect:
+        with client.websocket_connect(f"/api/v1/dispatch/ws?token={token}"):
+            pass
+
+    assert disconnect.value.code == 1013
+
+
 def test_chat_message_rate_limit(client, rate_limit_settings) -> None:
     booking_id, passenger_headers, _ = _create_booking(client)
 

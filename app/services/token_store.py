@@ -3,6 +3,7 @@ from threading import Lock
 from dataclasses import dataclass
 from collections.abc import Iterable
 
+from fastapi import HTTPException, status
 from redis import Redis
 from redis.exceptions import RedisError
 
@@ -39,8 +40,8 @@ class TokenStore:
         try:
             self._client.setex(self._redis_key(jti), ttl_seconds, "revoked")
             return
-        except RedisError:
-            pass
+        except RedisError as exc:
+            self._raise_if_redis_unavailable(exc)
 
         with self._lock:
             self._in_memory_tokens[jti] = expires_at
@@ -49,8 +50,8 @@ class TokenStore:
     def is_revoked(self, jti: str) -> bool:
         try:
             return bool(self._client.exists(self._redis_key(jti)))
-        except (RedisError, AttributeError):
-            pass
+        except (RedisError, AttributeError) as exc:
+            self._raise_if_redis_unavailable(exc)
 
         with self._lock:
             self._prune_expired()
@@ -85,8 +86,8 @@ class TokenStore:
             self._client.sadd(self._user_sessions_key(user_id), jti)
             self._client.expire(self._user_sessions_key(user_id), ttl_seconds)
             return
-        except (RedisError, AttributeError):
-            pass
+        except (RedisError, AttributeError) as exc:
+            self._raise_if_redis_unavailable(exc)
 
         with self._lock:
             self._in_memory_sessions[jti] = SessionRecord(
@@ -113,8 +114,8 @@ class TokenStore:
                 user_agent=data.get("user_agent") or None,
                 ip_address=data.get("ip_address") or None,
             )
-        except (RedisError, AttributeError, KeyError, ValueError):
-            pass
+        except (RedisError, AttributeError, KeyError, ValueError) as exc:
+            self._raise_if_redis_unavailable(exc)
 
         with self._lock:
             self._prune_expired()
@@ -139,8 +140,8 @@ class TokenStore:
                     )
                 )
             return sorted(sessions, key=lambda item: item.issued_at, reverse=True)
-        except (RedisError, AttributeError):
-            pass
+        except (RedisError, AttributeError, KeyError, ValueError) as exc:
+            self._raise_if_redis_unavailable(exc)
 
         with self._lock:
             self._prune_expired()
@@ -159,8 +160,8 @@ class TokenStore:
             if data.get("user_id"):
                 self._client.srem(self._user_sessions_key(data["user_id"]), jti)
             return
-        except (RedisError, AttributeError, ValueError):
-            pass
+        except (RedisError, AttributeError, ValueError) as exc:
+            self._raise_if_redis_unavailable(exc)
 
         with self._lock:
             record = self._in_memory_sessions.pop(jti, None)
@@ -186,8 +187,8 @@ class TokenStore:
                 self._client.delete(self._session_key(jti))
             self._client.delete(self._user_sessions_key(user_id))
             return
-        except (RedisError, AttributeError):
-            pass
+        except (RedisError, AttributeError, KeyError, ValueError) as exc:
+            self._raise_if_redis_unavailable(exc)
 
         records_to_revoke: list[tuple[str, datetime]] = []
         with self._lock:
@@ -215,8 +216,8 @@ class TokenStore:
             else:
                 self._client.sadd(self._user_sessions_key(user_id), keep_jti)
             return
-        except (RedisError, AttributeError):
-            pass
+        except (RedisError, AttributeError, KeyError, ValueError) as exc:
+            self._raise_if_redis_unavailable(exc)
 
         records_to_revoke: list[tuple[str, datetime]] = []
         with self._lock:
@@ -234,6 +235,13 @@ class TokenStore:
 
         for jti, expires_at in records_to_revoke:
             self.revoke(jti, expires_at)
+
+    def _raise_if_redis_unavailable(self, error: Exception) -> None:
+        if settings.is_production:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Authentication state is temporarily unavailable",
+            ) from error
 
     def _prune_expired(self) -> None:
         now = datetime.now(timezone.utc)
