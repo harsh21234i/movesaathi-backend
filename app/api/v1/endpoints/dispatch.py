@@ -1,15 +1,13 @@
 import asyncio
 import json
 
-from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect, status
-from jose import JWTError
+from fastapi import APIRouter, Depends, HTTPException, Query, WebSocket, WebSocketDisconnect, status
 from redis import asyncio as redis_asyncio
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user, get_db
+from app.api.deps import get_current_user, get_user_from_access_token, get_db
 from app.models.dispatch import RideRequestStatus
 from app.models.user import User
-from app.repositories.user import UserRepository
 from app.schemas.dispatch import (
     DriverPresenceResponse,
     DriverPresenceUpsert,
@@ -20,7 +18,6 @@ from app.schemas.dispatch import (
 )
 from app.services.dispatch import DispatchService
 from app.core.config import settings
-from app.core.security import decode_token
 from app.models.user import UserRole
 from app.websocket.manager import connection_manager
 
@@ -128,13 +125,11 @@ async def dispatch_socket(websocket: WebSocket, token: str) -> None:
     room_id: int | None = None
     try:
         try:
-            payload = decode_token(token)
-            user_id = int(payload.get("sub", "0"))
-        except (JWTError, ValueError):
+            user = get_user_from_access_token(db, token)
+        except HTTPException:
             await websocket.close(code=1008)
             return
 
-        user = UserRepository(db).get_by_id(user_id)
         if not user:
             await websocket.close(code=1008)
             return

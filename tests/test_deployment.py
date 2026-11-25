@@ -1,8 +1,19 @@
 from app.core.config import settings
 
 
-def test_deployment_status_reports_runtime_flags(client) -> None:
-    response = client.get("/api/v1/deployment/status")
+def _support_headers(monkeypatch):
+    monkeypatch.setattr(settings, "SUPPORT_API_ENABLED", True)
+    monkeypatch.setattr(settings, "SUPPORT_API_KEY", "test-support-secret")
+    return {"x-support-token": "test-support-secret"}
+
+
+def test_ops_routes_require_support_auth(client) -> None:
+    assert client.get("/api/v1/deployment/status").status_code == 404
+    assert client.get("/api/v1/jobs/status").status_code == 404
+
+
+def test_deployment_status_reports_runtime_flags(client, monkeypatch) -> None:
+    response = client.get("/api/v1/deployment/status", headers=_support_headers(monkeypatch))
 
     assert response.status_code == 200
     body = response.json()
@@ -25,8 +36,8 @@ def test_deployment_status_reports_runtime_flags(client) -> None:
     assert body["preflight"]["checks"]["support_api_configured_when_enabled"] is True
 
 
-def test_deployment_status_is_not_production_safe_in_development(client) -> None:
-    response = client.get("/api/v1/deployment/status")
+def test_deployment_status_is_not_production_safe_in_development(client, monkeypatch) -> None:
+    response = client.get("/api/v1/deployment/status", headers=_support_headers(monkeypatch))
 
     assert response.status_code == 200
     assert response.json()["production_safe"] is True
@@ -42,8 +53,8 @@ def test_migration_preflight_reports_the_current_heads() -> None:
     assert payload["single_head"] == (payload["head_count"] == 1)
 
 
-def test_deployment_preflight_endpoint_returns_gateable_contract(client) -> None:
-    response = client.get("/api/v1/deployment/preflight")
+def test_deployment_preflight_endpoint_returns_gateable_contract(client, monkeypatch) -> None:
+    response = client.get("/api/v1/deployment/preflight", headers=_support_headers(monkeypatch))
 
     assert response.status_code == 200
     body = response.json()
@@ -106,8 +117,8 @@ def test_deployment_preflight_blocks_when_error_reporting_or_support_is_misconfi
     assert payload["checks"]["support_api_configured_when_enabled"] is False
 
 
-def test_deployment_checklist_endpoint_returns_release_steps(client) -> None:
-    response = client.get("/api/v1/deployment/checklist")
+def test_deployment_checklist_endpoint_returns_release_steps(client, monkeypatch) -> None:
+    response = client.get("/api/v1/deployment/checklist", headers=_support_headers(monkeypatch))
 
     assert response.status_code == 200
     body = response.json()

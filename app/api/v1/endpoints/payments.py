@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from sqlalchemy.orm import Session
 
 from app.api.deps import get_current_user, get_db
+from app.core.config import settings
 from app.models.payment import PaymentProvider
 from app.models.user import User
 from app.schemas.payment import PaymentCreate, PaymentListResponse, PaymentResponse, PaymentWebhookEvent, PaymentWebhookResponse
@@ -45,6 +46,8 @@ def mock_payment_webhook(
     payload: PaymentWebhookEvent,
     db: Session = Depends(get_db),
 ) -> PaymentWebhookResponse:
+    if settings.is_production or settings.PAYMENT_PROVIDER != "mock":
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
     return PaymentService(db).process_webhook_event(payload)
 
 

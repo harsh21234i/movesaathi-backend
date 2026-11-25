@@ -168,6 +168,22 @@ def test_duplicate_payment_is_rejected(client) -> None:
     assert second.status_code == 409
 
 
+def test_mock_webhook_is_disabled_in_production(client, monkeypatch) -> None:
+    monkeypatch.setattr("app.api.v1.endpoints.payments.settings.APP_ENV", "production")
+    response = client.post("/api/v1/payments/webhooks/mock", json={
+        "provider_event_id": "event-1", "event_type": "payment.captured", "provider_payment_id": "payment-1"
+    })
+    assert response.status_code == 404
+
+
+def test_mock_webhook_is_disabled_when_razorpay_is_selected(client, monkeypatch) -> None:
+    monkeypatch.setattr("app.api.v1.endpoints.payments.settings.PAYMENT_PROVIDER", "razorpay")
+    response = client.post("/api/v1/payments/webhooks/mock", json={
+        "provider_event_id": "event-2", "event_type": "payment.captured", "provider_payment_id": "payment-2"
+    })
+    assert response.status_code == 404
+
+
 def test_payment_webhook_authorizes_payment_idempotently(client) -> None:
     booking_id, passenger_headers, _ = _create_booking(client)
     payment = client.post("/api/v1/payments", headers=passenger_headers, json={"booking_id": booking_id}).json()
@@ -363,9 +379,12 @@ def test_support_can_list_and_reconcile_payments(client, monkeypatch) -> None:
     assert reconciled.json()["status"] == "authorized"
 
 
-def test_razorpay_webhook_requires_valid_signature(client, monkeypatch) -> None:
+def test_razorpay_webhook_requires_valid_signature(client, monkeypatch, db_session) -> None:
     booking_id, passenger_headers, _ = _create_booking(client)
     payment = client.post("/api/v1/payments", headers=passenger_headers, json={"booking_id": booking_id}).json()
+    from app.models.payment import Payment, PaymentProvider
+    db_session.query(Payment).filter(Payment.id == payment["id"]).one().provider = PaymentProvider.razorpay
+    db_session.commit()
     monkeypatch.setattr("app.services.payment_provider.settings.PAYMENT_PROVIDER", "razorpay")
     monkeypatch.setattr("app.services.payment_provider.settings.RAZORPAY_KEY_ID", "rzp_test_public")
     monkeypatch.setattr("app.services.payment_provider.settings.RAZORPAY_KEY_SECRET", "server-only-key-secret")

@@ -1,11 +1,12 @@
 from collections.abc import Generator
 from datetime import datetime, timezone
 
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import OAuth2PasswordBearer
 from jose import JWTError
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.core.security import decode_token
 from app.db.session import SessionLocal
 from app.models.user import User
@@ -23,28 +24,40 @@ def get_db() -> Generator[Session, None, None]:
         db.close()
 
 
-def get_current_user(
-    db: Session = Depends(get_db), token: str = Depends(oauth2_scheme)
-) -> User:
-    credentials_exception = HTTPException(
+def get_user_from_access_token(db: Session, token: str) -> User:
+    invalid = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
     try:
         payload = decode_token(token)
-        if payload.get("type") != "access":
-            raise credentials_exception
-        if token_store.is_revoked(payload.get("jti", "")):
-            raise credentials_exception
+        if payload.get("type") != "access" or token_store.is_revoked(payload.get("jti", "")):
+            raise invalid
+        session_jti = payload.get("session_jti")
+        if session_jti and token_store.is_revoked(session_jti):
+            raise invalid
         user_id = int(payload.get("sub", "0"))
     except (JWTError, ValueError):
-        raise credentials_exception from None
-
+        raise invalid from None
     user = UserRepository(db).get_by_id(user_id)
     if not user:
-        raise credentials_exception
+        raise invalid
     return user
+
+
+def get_current_user(
+    db: Session = Depends(get_db), token: str = Depends(oauth2_scheme)
+) -> User:
+    return get_user_from_access_token(db, token)
+
+
+def require_support_auth(request: Request) -> None:
+    if not settings.SUPPORT_API_ENABLED:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Not found")
+    token = request.headers.get("x-support-token")
+    if not token or token != settings.SUPPORT_API_KEY:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Invalid support token")
 
 
 def revoke_token_from_payload(payload: dict) -> None:

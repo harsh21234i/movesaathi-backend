@@ -150,11 +150,16 @@ class TokenStore:
     def revoke_session(self, jti: str) -> None:
         expires_at: datetime | None = None
         try:
+            data = self._client.hgetall(self._session_key(jti))
+            if data.get("expires_at"):
+                expires_at = self._normalize(datetime.fromisoformat(data["expires_at"]))
+                ttl = max(int((expires_at - datetime.now(timezone.utc)).total_seconds()), 1)
+                self._client.setex(self._redis_key(jti), ttl, "revoked")
             self._client.delete(self._session_key(jti))
-            for key in self._client.keys(self._user_sessions_key("*")):
-                self._client.srem(key, jti)
+            if data.get("user_id"):
+                self._client.srem(self._user_sessions_key(data["user_id"]), jti)
             return
-        except (RedisError, AttributeError):
+        except (RedisError, AttributeError, ValueError):
             pass
 
         with self._lock:

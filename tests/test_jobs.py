@@ -52,6 +52,8 @@ def test_job_queue_tracks_failures(monkeypatch) -> None:
 
 
 def test_jobs_status_endpoint_reports_snapshot(client, monkeypatch) -> None:
+    monkeypatch.setattr("app.core.config.settings.SUPPORT_API_ENABLED", True)
+    monkeypatch.setattr("app.core.config.settings.SUPPORT_API_KEY", "test-support-secret")
     monkeypatch.setattr(
         "app.api.v1.endpoints.jobs.job_queue.snapshot",
         lambda: {
@@ -98,7 +100,7 @@ def test_jobs_status_endpoint_reports_snapshot(client, monkeypatch) -> None:
         },
     )
 
-    response = client.get("/api/v1/jobs/status")
+    response = client.get("/api/v1/jobs/status", headers={"x-support-token": "test-support-secret"})
 
     assert response.status_code == 200
     body = response.json()

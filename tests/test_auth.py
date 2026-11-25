@@ -415,6 +415,24 @@ def test_revoke_other_sessions_keeps_current_session(client) -> None:
     assert {session.jti for session in sessions} == {current_jti}
 
 
+def test_revoking_session_invalidates_its_access_token(client) -> None:
+    client.post("/api/v1/auth/register", json={
+        "full_name": "Session Revoke User", "email": "session-revoke@example.com", "password": "Password123"
+    })
+    login = client.post("/api/v1/auth/login", json={
+        "email": "session-revoke@example.com", "password": "Password123"
+    })
+    access_token = login.json()["access_token"]
+    from app.core.security import decode_token
+    session_jti = decode_token(access_token)["session_jti"]
+
+    revoked = client.delete(
+        f"/api/v1/auth/sessions/{session_jti}", headers={"Authorization": f"Bearer {access_token}"}
+    )
+    assert revoked.status_code == 204
+    assert client.get("/api/v1/users/me", headers={"Authorization": f"Bearer {access_token}"}).status_code == 401
+
+
 def test_revoke_session_is_audited(client, db_session) -> None:
     from datetime import datetime, timedelta, timezone
 

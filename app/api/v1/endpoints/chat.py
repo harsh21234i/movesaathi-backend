@@ -2,18 +2,15 @@ import asyncio
 
 import json
 
-from fastapi import APIRouter, Depends, Request, WebSocket, WebSocketDisconnect
-from jose import JWTError
+from fastapi import APIRouter, Depends, HTTPException, Request, WebSocket, WebSocketDisconnect
 from redis import asyncio as redis_asyncio
 from sqlalchemy.orm import Session
 
-from app.api.deps import get_current_user, get_db
+from app.api.deps import get_current_user, get_user_from_access_token, get_db
 from app.core.config import settings
 from app.core.rate_limit import rate_limit_dependency
-from app.core.security import decode_token
 from app.models.user import User
 from app.repositories.booking import BookingRepository
-from app.repositories.user import UserRepository
 from app.schemas.message import MessageCreate, MessageResponse, MessageSeenResponse
 from app.services.chat import ChatService
 from app.websocket.manager import connection_manager
@@ -81,13 +78,11 @@ async def chat_socket(websocket: WebSocket, booking_id: int, token: str) -> None
     pubsub = redis_client.pubsub()
     try:
         try:
-            payload = decode_token(token)
-            user_id = int(payload.get("sub", "0"))
-        except (JWTError, ValueError):
+            user = get_user_from_access_token(db, token)
+        except HTTPException:
             await websocket.close(code=1008)
             return
 
-        user = UserRepository(db).get_by_id(user_id)
         booking = BookingRepository(db).get_by_id(booking_id)
         if not user or not booking or user.id not in {booking.passenger_id, booking.ride.driver_id}:
             await websocket.close(code=1008)

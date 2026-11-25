@@ -399,6 +399,8 @@ class PaymentService:
         payment = self.payments.get_by_provider_payment_id(payload.provider_payment_id)
         if not payment and payload.provider_order_id:
             payment = self.payments.get_by_provider_order_id(payload.provider_order_id)
+        if payment and payment.provider != provider:
+            raise HTTPException(status_code=400, detail="Webhook provider does not match payment provider")
         event = PaymentEvent(
             payment_id=payment.id if payment else None,
             provider=provider,

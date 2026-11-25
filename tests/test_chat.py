@@ -1,6 +1,10 @@
 from datetime import datetime, timedelta, timezone
 
+import pytest
+from starlette.websockets import WebSocketDisconnect
 from redis.exceptions import RedisError
+
+from app.core.security import create_reset_token
 
 from app.services.chat import ChatService
 from tests.helpers import verify_driver_by_email
@@ -54,6 +58,21 @@ def _create_booking(client):
     )
     assert booking_response.status_code == 200
     return booking_response.json()["id"], passenger_headers, driver_headers
+
+
+def test_websockets_reject_non_access_tokens(client) -> None:
+    registered = client.post("/api/v1/auth/register", json={
+        "full_name": "Socket User", "email": "socket-user@example.com", "password": "Password123"
+    })
+    assert registered.status_code == 201
+    token = create_reset_token("1")
+
+    with pytest.raises(WebSocketDisconnect):
+        with client.websocket_connect(f"/api/v1/chat/ws/1?token={token}"):
+            pass
+    with pytest.raises(WebSocketDisconnect):
+        with client.websocket_connect(f"/api/v1/dispatch/ws?token={token}"):
+            pass
 
 
 def test_chat_message_rate_limit(client, rate_limit_settings) -> None:
